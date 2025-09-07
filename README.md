@@ -10,18 +10,7 @@ The `K0` button is the main action button for the application. On the EchoKit de
 
 ## Quick start
 
-Get an image of the firmware.
-
-```
-curl -L -o echokit.bin https://echokit.dev/firmware/echokit-boards.bin
-```
-
-Flash the `echokit.bin` device image using the web-based [ESP Launchpad](https://espressif.github.io/esp-launchpad/) tool.
-
-* Upload the `echokit.bin` file under the **DIY** tab. Make sure that the **flash address** is `0x0`.
-* Attach your EchoKit device to the computer using USB. Allow the computer to access the device when prompted.
-* Click on the **Connect** tab to connect to the EchoKit device.
-* Flash the firmware to the device!
+Flash the `echokit.bin` device image using the web-based [ESP Launchpad](https://espressif.github.io/esp-launchpad/?flashConfigURL=https://echokit.dev/firmware/echokit.toml) tool.
 
 ## Install espflash
 
