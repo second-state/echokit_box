@@ -10,6 +10,7 @@ mod network;
 mod protocol;
 mod ui;
 mod ws;
+mod sntp;
 
 #[derive(Debug, Clone)]
 struct Setting {
@@ -182,6 +183,13 @@ fn main() -> anyhow::Result<()> {
     }
 
     let wifi = _wifi.unwrap();
+    log_heap();
+
+    let now_time = sntp::sync_time();
+    gui.state = "SNTP sync".to_string();
+    gui.text = format!("{}", now_time);
+    gui.display_flush().unwrap();
+
     log_heap();
 
     let mac = wifi.ap_netif().get_mac().unwrap();
