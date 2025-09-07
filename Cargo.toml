@@ -36,7 +36,7 @@ esp-idf-svc = { version = "0.51.0", features = [
 ] }
 # wav_io = "0.1.15"
 
-rand = "0.8.5"
+rand = "0.9"
 
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -55,7 +55,7 @@ tinygif = "0.0.4"
 futures-util = { version = "0.3.31", features = ["sink"] }
 # futures-sink = "0.3.31"
 
-tokio = { version = "1.43.0", features = [
+tokio = { version = "1.47", features = [
     "net",
     "rt",
     "time",
@@ -63,14 +63,15 @@ tokio = { version = "1.43.0", features = [
     "io-util",
     "macros",
 ] }
-tokio-websockets = { version = "0.8", features = [
+tokio-websockets = { version = "0.12", features = [
     "client",
     "fastrand",
     "sha1_smol",
 ] }
-bytes = "1.10.0"
+bytes = "1.10"
 
 qrcode = { version = "0.14.1", default-features = false, features = [] }
+dotenv = "0.15"
 
 [build-dependencies]
 embuild = "0.33"
@@ -84,3 +85,9 @@ bindings_module = "esp_sr"
 component_dirs = ["components/hal_driver"]
 bindings_header = "components/hal_driver/wrapper.h"
 bindings_module = "hal_driver"
+
+[lints.clippy]
+too_many_arguments = "allow"
+field_reassign_with_default = "allow"
+redundant_pattern_matching = "allow"
+enum_variant_names = "allow"

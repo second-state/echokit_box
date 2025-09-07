@@ -32,18 +32,19 @@ unsafe fn afe_init() -> (
     log::info!("{afe_config:?}");
 
     let afe_ringbuf_size = afe_config.afe_ringbuf_size;
-    log::info!("afe ringbuf size: {}", afe_ringbuf_size);
+    log::info!("afe ringbuf size: {afe_ringbuf_size}");
 
     let afe_handle = esp_sr::esp_afe_handle_from_config(afe_config);
     let afe_handle = afe_handle.as_mut().unwrap();
     let afe_data = (afe_handle.create_from_config.unwrap())(afe_config);
     let audio_chunksize = (afe_handle.get_feed_chunksize.unwrap())(afe_data);
-    log::info!("audio chunksize: {}", audio_chunksize);
+    log::info!("audio chunksize: {audio_chunksize}");
 
     esp_sr::afe_config_free(afe_config);
     (afe_handle, afe_data)
 }
 
+#[allow(clippy::upper_case_acronyms)]
 struct AFE {
     handle: *mut esp_sr::esp_afe_sr_iface_t,
     data: *mut esp_sr::esp_afe_sr_data_t,
@@ -156,13 +157,13 @@ pub async fn i2s_task_(
     let afe_r = std::thread::spawn(|| afe_worker(afe_handle_, tx));
     let r = i2s_player_(i2s, ws, sck, din, i2s1, bclk, lrclk, dout, afe_handle, rx).await;
     if let Err(e) = r {
-        log::error!("Error: {}", e);
+        log::error!("Error: {e}");
     } else {
         log::info!("I2S test completed successfully");
     }
     let r = afe_r.join().unwrap();
     if let Err(e) = r {
-        log::error!("Error: {}", e);
+        log::error!("Error: {e}");
     } else {
         log::info!("AFE worker completed successfully");
     }
@@ -278,6 +279,7 @@ async fn i2s_player_(
     // Ok(())
 }
 
+#[allow(unused)]
 pub async fn i2s_task(
     i2s: I2S0,
     bclk: AnyIOPin,
@@ -291,13 +293,13 @@ pub async fn i2s_task(
     let afe_r = std::thread::spawn(|| afe_worker(afe_handle_, tx));
     let r = i2s_player(i2s, bclk, din, dout, ws, afe_handle, rx).await;
     if let Err(e) = r {
-        log::error!("Error: {}", e);
+        log::error!("Error: {e}");
     } else {
         log::info!("I2S test completed successfully");
     }
     let r = afe_r.join().unwrap();
     if let Err(e) = r {
-        log::error!("Error: {}", e);
+        log::error!("Error: {e}");
     } else {
         log::info!("AFE worker completed successfully");
     }
@@ -312,7 +314,7 @@ async fn i2s_player(
     afe_handle: Arc<AFE>,
     mut rx: PlayerRx,
 ) -> anyhow::Result<()> {
-    log::info!("PORT_TICK_PERIOD_MS = {}", PORT_TICK_PERIOD_MS);
+    log::info!("PORT_TICK_PERIOD_MS = {PORT_TICK_PERIOD_MS}");
     let i2s_config = config::StdConfig::new(
         config::Config::default().auto_clear(true),
         config::StdClkConfig::from_sample_rate_hz(SAMPLE_RATE),

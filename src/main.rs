@@ -37,21 +37,21 @@ fn main() -> anyhow::Result<()> {
     let mut ssid_buf = [0; 32];
     let ssid = nvs
         .get_str("ssid", &mut ssid_buf)
-        .map_err(|e| log::error!("Failed to get ssid: {:?}", e))
+        .map_err(|e| log::error!("Failed to get ssid: {e:?}"))
         .ok()
         .flatten();
 
     let mut pass_buf = [0; 64];
     let pass = nvs
         .get_str("pass", &mut pass_buf)
-        .map_err(|e| log::error!("Failed to get pass: {:?}", e))
+        .map_err(|e| log::error!("Failed to get pass: {e:?}"))
         .ok()
         .flatten();
 
     let mut server_url = [0; 128];
     let server_url = nvs
         .get_str("server_url", &mut server_url)
-        .map_err(|e| log::error!("Failed to get server_url: {:?}", e))
+        .map_err(|e| log::error!("Failed to get server_url: {e:?}"))
         .ok()
         .flatten();
 
@@ -59,13 +59,13 @@ fn main() -> anyhow::Result<()> {
     let mut gif_buf = vec![0; 1024 * 1024];
     let background_gif = nvs.get_blob("background_gif", &mut gif_buf)?;
 
-    log::info!("SSID: {:?}", ssid);
-    log::info!("PASS: {:?}", pass);
-    log::info!("Server URL: {:?}", server_url);
+    log::info!("SSID: {ssid:?}");
+    log::info!("PASS: {pass:?}");
+    log::info!("Server URL: {server_url:?}");
 
     log_heap();
     if let Some(background_gif) = background_gif {
-        let _ = ui::backgroud(&background_gif);
+        let _ = ui::backgroud(background_gif);
     } else {
         let mut ui = ui::UI::new(None).unwrap();
         ui.text = "You can hold K0 goto setup page".to_string();
@@ -150,7 +150,7 @@ fn main() -> anyhow::Result<()> {
                     setting
                         .1
                         .set_blob("background_gif", &new_gif)
-                        .map_err(|e| log::error!("Failed to save background GIF to NVS: {:?}", e))
+                        .map_err(|e| log::error!("Failed to save background GIF to NVS: {e:?}"))
                         .unwrap();
                     log::info!("Background GIF saved to NVS");
                 }
@@ -294,7 +294,7 @@ fn main() -> anyhow::Result<()> {
     b.block_on(async move {
         let r = ws_task.await;
         if let Err(e) = r {
-            log::error!("Error: {:?}", e);
+            log::error!("Error: {e:?}");
         } else {
             log::info!("WebSocket task finished successfully");
         }

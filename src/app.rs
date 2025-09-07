@@ -35,7 +35,7 @@ async fn select_evt(evt_rx: &mut mpsc::Receiver<Event>, server: &mut Server) -> 
         Some(evt) = evt_rx.recv() => {
             match &evt {
                 Event::Event(_)=>{
-                    log::info!("Received event: {:?}", evt);
+                    log::info!("Received event: {evt:?}");
                 },
                 Event::MicAudioEnd=>{
                     log::info!("Received MicAudioEnd");
@@ -44,7 +44,7 @@ async fn select_evt(evt_rx: &mut mpsc::Receiver<Event>, server: &mut Server) -> 
                     log::debug!("Received MicAudioChunk with {} bytes", data.len());
                 },
                 Event::ServerEvent(_)=>{
-                    log::info!("Received ServerEvent: {:?}", evt);
+                    log::info!("Received ServerEvent: {evt:?}");
                 },
             }
             Some(evt)
@@ -61,7 +61,7 @@ async fn select_evt(evt_rx: &mut mpsc::Receiver<Event>, server: &mut Server) -> 
                     log::info!("Received BGChunk");
                 }
                 _=> {
-                    log::info!("Received message: {:?}", msg);
+                    log::info!("Received message: {msg:?}");
                 }
             }
             Some(msg)
@@ -112,12 +112,13 @@ impl DownloadMetrics {
 
 // TODO: 按键打断
 // TODO: 超时不监听
-pub async fn main_work<'d>(
+pub async fn main_work(
     mut server: Server,
     player_tx: audio::PlayerTx,
     mut evt_rx: mpsc::Receiver<Event>,
-    backgroud_buffer: Option<&'d [u8]>,
+    backgroud_buffer: Option<&[u8]>,
 ) -> anyhow::Result<()> {
+    #[allow(unused)]
     #[derive(PartialEq, Eq)]
     enum State {
         Listening,
@@ -184,7 +185,7 @@ pub async fn main_work<'d>(
             Event::Event(Event::YES | Event::K1) => {}
             Event::Event(Event::NO) => {}
             Event::Event(evt) => {
-                log::info!("Received event: {:?}", evt);
+                log::info!("Received event: {evt:?}");
             }
             Event::MicAudioChunk(data) => {
                 if state == State::Listening || state == State::Recording {
@@ -219,23 +220,23 @@ pub async fn main_work<'d>(
                 submit_audio = 0.0;
             }
             Event::ServerEvent(ServerEvent::ASR { text }) => {
-                log::info!("Received ASR: {:?}", text);
+                log::info!("Received ASR: {text:?}");
                 gui.state = "ASR".to_string();
                 gui.text = text.trim().to_string();
                 gui.display_flush().unwrap();
             }
             Event::ServerEvent(ServerEvent::Action { action }) => {
                 log::info!("Received action");
-                gui.state = format!("Action: {}", action);
+                gui.state = format!("Action: {action}");
                 gui.display_flush().unwrap();
             }
             Event::ServerEvent(ServerEvent::StartAudio { text }) => {
                 if need_compute {
                     metrics.reset();
                 }
-                log::info!("Received audio start: {:?}", text);
+                log::info!("Received audio start: {text:?}");
                 state = State::Speaking;
-                gui.state = format!("[{:.2}x]|Speaking...", speed);
+                gui.state = format!("[{speed:.2}x]|Speaking...");
                 gui.text = text.trim().to_string();
                 gui.display_flush().unwrap();
                 player_tx
@@ -255,7 +256,7 @@ pub async fn main_work<'d>(
 
                 if speed < 1.0 {
                     if let Err(e) = player_tx.send(AudioData::Chunk(data)) {
-                        log::error!("Error sending audio chunk: {:?}", e);
+                        log::error!("Error sending audio chunk: {e:?}");
                         gui.state = "Error on audio chunk".to_string();
                         gui.display_flush().unwrap();
                     }
@@ -271,11 +272,11 @@ pub async fn main_work<'d>(
                     need_compute = false;
                 }
 
-                log::info!("Audio speed: {:.2}x", speed);
+                log::info!("Audio speed: {speed:.2}x");
 
-                if speed > 1.0 && audio_buffer.len() > 0 {
+                if speed > 1.0 && !audio_buffer.is_empty() {
                     if let Err(e) = player_tx.send(AudioData::Chunk(audio_buffer)) {
-                        log::error!("Error sending audio chunk: {:?}", e);
+                        log::error!("Error sending audio chunk: {e:?}");
                         gui.state = "Error on audio chunk".to_string();
                         gui.display_flush().unwrap();
                     }
@@ -284,7 +285,7 @@ pub async fn main_work<'d>(
 
                 let (tx, rx) = tokio::sync::oneshot::channel();
                 if let Err(e) = player_tx.send(AudioData::End(tx)) {
-                    log::error!("Error sending audio chunk: {:?}", e);
+                    log::error!("Error sending audio chunk: {e:?}");
                     gui.state = "Error on audio chunk".to_string();
                     gui.display_flush().unwrap();
                 }
@@ -343,7 +344,7 @@ pub async fn main_work<'d>(
                             gui.display_flush().unwrap();
                         }
                         Err(e) => {
-                            log::error!("Error creating GUI from background data: {:?}", e);
+                            log::error!("Error creating GUI from background data: {e:?}");
                             gui.state = "Error on background data".to_string();
                             gui.display_flush().unwrap();
                         }
