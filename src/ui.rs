@@ -145,7 +145,7 @@ pub fn flush_display(color_data: &[u8], x_start: i32, y_start: i32, x_end: i32, 
             color_data.as_ptr().cast(),
         );
         if e != 0 {
-            log::warn!("flush_display error: {}", e);
+            log::warn!("flush_display error: {e}");
         }
         e
     }
@@ -333,6 +333,7 @@ impl qrcode::render::Pixel for QrPixel {
     }
 }
 
+#[allow(unused)]
 pub struct QrCanvas {
     width: u32,
     height: u32,
@@ -505,7 +506,7 @@ impl UI {
             if e == 0 {
                 break;
             }
-            log::warn!("flush_display error: {} retry {i}", e);
+            log::warn!("flush_display error: {e} retry {i}");
         }
         Ok(())
     }
@@ -584,7 +585,7 @@ impl UI {
             if e == 0 {
                 break;
             }
-            log::warn!("flush_display error: {} retry {i}", e);
+            log::warn!("flush_display error: {e} retry {i}");
         }
         Ok(())
     }

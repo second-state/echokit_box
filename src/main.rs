@@ -21,6 +21,9 @@ struct Setting {
 
 fn main() -> anyhow::Result<()> {
     esp_idf_svc::sys::link_patches();
+    // espflash v4.0 Error: SP-IDF App Descriptor
+    // https://github.com/esp-rs/esp-hal/releases/tag/esp-hal-v1.0.0-rc.0
+    // esp_app_desc!();
     esp_idf_svc::log::EspLogger::initialize_default();
     let peripherals = esp_idf_svc::hal::prelude::Peripherals::take().unwrap();
     let sysloop = EspSystemEventLoop::take()?;
@@ -37,21 +40,21 @@ fn main() -> anyhow::Result<()> {
     let mut ssid_buf = [0; 32];
     let ssid = nvs
         .get_str("ssid", &mut ssid_buf)
-        .map_err(|e| log::error!("Failed to get ssid: {:?}", e))
+        .map_err(|e| log::error!("Failed to get ssid: {e:?}"))
         .ok()
         .flatten();
 
     let mut pass_buf = [0; 64];
     let pass = nvs
         .get_str("pass", &mut pass_buf)
-        .map_err(|e| log::error!("Failed to get pass: {:?}", e))
+        .map_err(|e| log::error!("Failed to get pass: {e:?}"))
         .ok()
         .flatten();
 
     let mut server_url = [0; 128];
     let server_url = nvs
         .get_str("server_url", &mut server_url)
-        .map_err(|e| log::error!("Failed to get server_url: {:?}", e))
+        .map_err(|e| log::error!("Failed to get server_url: {e:?}"))
         .ok()
         .flatten();
 
@@ -59,13 +62,13 @@ fn main() -> anyhow::Result<()> {
     let mut gif_buf = vec![0; 1024 * 1024];
     let background_gif = nvs.get_blob("background_gif", &mut gif_buf)?;
 
-    log::info!("SSID: {:?}", ssid);
-    log::info!("PASS: {:?}", pass);
-    log::info!("Server URL: {:?}", server_url);
+    log::info!("SSID: {ssid:?}");
+    log::info!("PASS: {pass:?}");
+    log::info!("Server URL: {server_url:?}");
 
     log_heap();
     if let Some(background_gif) = background_gif {
-        let _ = ui::backgroud(&background_gif);
+        let _ = ui::backgroud(background_gif);
     } else {
         let mut ui = ui::UI::new(None).unwrap();
         ui.text = "You can hold K0 goto setup page".to_string();
@@ -81,9 +84,7 @@ fn main() -> anyhow::Result<()> {
     button.set_pull(esp_idf_svc::hal::gpio::Pull::Up)?;
     button.set_interrupt_type(esp_idf_svc::hal::gpio::InterruptType::PosEdge)?;
 
-    let b = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?;
+    let b = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 
     let mut gui = ui::UI::new(None).unwrap();
 
@@ -150,7 +151,7 @@ fn main() -> anyhow::Result<()> {
                     setting
                         .1
                         .set_blob("background_gif", &new_gif)
-                        .map_err(|e| log::error!("Failed to save background GIF to NVS: {:?}", e))
+                        .map_err(|e| log::error!("Failed to save background GIF to NVS: {e:?}"))
                         .unwrap();
                     log::info!("Background GIF saved to NVS");
                 }
@@ -166,12 +167,7 @@ fn main() -> anyhow::Result<()> {
 
     let _wifi = {
         let setting = setting.lock().unwrap();
-        network::wifi(
-            &setting.0.ssid,
-            &setting.0.pass,
-            peripherals.modem,
-            sysloop.clone(),
-        )
+        network::wifi(&setting.0.ssid, &setting.0.pass, peripherals.modem, sysloop.clone())
     };
     if _wifi.is_err() {
         gui.state = "Failed to connect to wifi".to_string();
@@ -266,26 +262,16 @@ fn main() -> anyhow::Result<()> {
             )
             .await;
             match r {
-                Ok(_) => {
-                    if evt_tx
-                        .send(app::Event::Event(app::Event::K0))
-                        .await
-                        .is_err()
-                    {
+                Ok(_) =>
+                    if evt_tx.send(app::Event::Event(app::Event::K0)).await.is_err() {
                         log::error!("Failed to send K0 event");
                         break;
-                    }
-                }
-                Err(_) => {
-                    if evt_tx
-                        .send(app::Event::Event(app::Event::K0_))
-                        .await
-                        .is_err()
-                    {
+                    },
+                Err(_) =>
+                    if evt_tx.send(app::Event::Event(app::Event::K0_)).await.is_err() {
                         log::error!("Failed to send K0 event");
                         break;
-                    }
-                }
+                    },
             }
         }
     });
@@ -294,7 +280,7 @@ fn main() -> anyhow::Result<()> {
     b.block_on(async move {
         let r = ws_task.await;
         if let Err(e) = r {
-            log::error!("Error: {:?}", e);
+            log::error!("Error: {e:?}");
         } else {
             log::info!("WebSocket task finished successfully");
         }
@@ -307,13 +293,39 @@ pub fn log_heap() {
     unsafe {
         use esp_idf_svc::sys::{heap_caps_get_free_size, MALLOC_CAP_INTERNAL, MALLOC_CAP_SPIRAM};
 
-        log::info!(
-            "Free SPIRAM heap size: {}",
-            heap_caps_get_free_size(MALLOC_CAP_SPIRAM)
-        );
-        log::info!(
-            "Free INTERNAL heap size: {}",
-            heap_caps_get_free_size(MALLOC_CAP_INTERNAL)
-        );
+        log::info!("Free SPIRAM heap size: {}", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+        log::info!("Free INTERNAL heap size: {}", heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
     }
 }
+
+const fn str_to_cstr_array<const N: usize>(s: &str) -> [u8; N] {
+    let mut ret: [u8; N] = [0; N];
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < N && i < bytes.len() {
+        ret[i] = bytes[i];
+        i += 1;
+    }
+    ret
+}
+
+#[no_mangle]
+#[used]
+#[link_section = ".rodata_desc"]
+#[allow(non_upper_case_globals)]
+pub static esp_app_desc: esp_idf_svc::sys::esp_app_desc_t = esp_idf_svc::sys::esp_app_desc_t {
+    magic_word: esp_idf_svc::sys::ESP_APP_DESC_MAGIC_WORD,
+    secure_version: 0,
+    reserv1: [0; 2],
+    version: str_to_cstr_array::<32>(env!("CARGO_PKG_VERSION")),
+    project_name: str_to_cstr_array::<32>(env!("CARGO_PKG_NAME")),
+    time: str_to_cstr_array::<16>(esp_idf_svc::sys::build_time::build_time_utc!("%H:%M:%S")),
+    date: str_to_cstr_array::<16>(esp_idf_svc::sys::build_time::build_time_utc!("%Y-%m-%d")),
+    idf_ver: str_to_cstr_array::<32>(env!("ESP_IDF_VERSION")),
+    app_elf_sha256: [0; 32],
+    min_efuse_blk_rev_full: 0,
+    max_efuse_blk_rev_full: 0,
+    mmu_page_size: 0,
+    reserv3: [0; 3],
+    reserv2: [0; 18],
+};

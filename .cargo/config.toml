@@ -1,9 +1,10 @@
 [build]
 target = "xtensa-esp32s3-espidf"
+target-dir = "/tmp/rustTmp/target"
 
 [target.xtensa-esp32s3-espidf]
 linker = "ldproxy"
-runner = "espflash flash --baud=921600 --monitor --flash-size 16mb"
+runner = "espflash flash --baud=460800 --monitor --flash-size 16mb"
 rustflags = ["--cfg", "espidf_time64", "--cfg", "esp_idf_comp_vfs_enabled"]
 
 [unstable]
@@ -13,3 +14,11 @@ build-std = ["std", "panic_abort"]
 MCU = "esp32s3"
 # Note: this variable is not used by the pio builder (`cargo build --features pio`)
 ESP_IDF_VERSION = "v5.4.1"
+
+# 设置了target-dir, 则必须设置这个变量
+CARGO_WORKSPACE_DIR = { value = "", relative = true }
+# 指定esp-idf路径, 不会自动安装esp-idf, 手动install.sh安装
+# IDF_PATH="/tmp/rustTmp/.embuild/esp-idf/v5.4.1"
+# 指定esp-idf工具安装路径, 默认在工作目录下
+ESP_IDF_TOOLS_INSTALL_DIR = "custom:/tmp/rustTmp/.embuild"
+
