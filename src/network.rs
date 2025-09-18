@@ -49,7 +49,7 @@ pub fn wifi(
 
     let ip_info = wifi.wifi().sta_netif().get_ip_info()?;
 
-    info!("Wifi DHCP info: {:?}", ip_info);
+    info!("Wifi DHCP info: {ip_info:?}");
 
     Ok(Box::new(esp_wifi))
 }
@@ -76,7 +76,7 @@ pub fn http_post(url: &str, data: &[u8]) -> anyhow::Result<EspHttpConnection> {
 
     while offset < data.len() {
         offset += conn.write(&data[offset..])?;
-        log::info!("Wrote {} bytes", offset);
+        log::info!("Wrote {offset} bytes");
     }
 
     conn.initiate_response()?;

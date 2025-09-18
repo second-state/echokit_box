@@ -1,8 +1,8 @@
-#[allow(unused)]
+#![allow(unused)]
 fn print_stack_high() {
     let stack_high =
         unsafe { esp_idf_svc::sys::uxTaskGetStackHighWaterMark2(std::ptr::null_mut()) };
-    log::info!("Stack high: {}", stack_high);
+    log::info!("Stack high: {stack_high}");
 }
 
 use crate::{app::Event, protocol::ServerEvent};
@@ -10,7 +10,6 @@ use futures_util::{SinkExt, StreamExt, TryFutureExt};
 use tokio_websockets::Message;
 
 pub struct Server {
-    pub uri: String,
     timeout: std::time::Duration,
     ws: tokio_websockets::WebSocketStream<tokio_websockets::MaybeTlsStream<tokio::net::TcpStream>>,
 }
@@ -24,7 +23,7 @@ impl Server {
 
         let timeout = std::time::Duration::from_secs(30);
 
-        Ok(Self { uri, timeout, ws })
+        Ok(Self { timeout, ws })
     }
 
     pub fn set_timeout(&mut self, timeout: std::time::Duration) {

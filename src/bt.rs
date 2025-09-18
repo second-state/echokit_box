@@ -17,7 +17,7 @@ pub fn bt(
 
     let server = ble_device.get_server();
     server.on_connect(|server, desc| {
-        log::info!("Client connected: {:?}", desc);
+        log::info!("Client connected: {desc:?}");
 
         server
             .update_conn_params(desc.conn_handle(), 24, 48, 0, 60)
@@ -30,7 +30,7 @@ pub fn bt(
     });
 
     server.on_disconnect(|_desc, reason| {
-        log::info!("Client disconnected ({:?})", reason);
+        log::info!("Client disconnected ({reason:?})");
     });
 
     let service = server.create_service(SERVICE_ID);
@@ -55,10 +55,10 @@ pub fn bt(
                 args.recv_data()
             );
             if let Ok(new_ssid) = String::from_utf8(args.recv_data().to_vec()) {
-                log::info!("New SSID: {}", new_ssid);
+                log::info!("New SSID: {new_ssid}");
                 let mut setting = setting2.lock().unwrap();
                 if let Err(e) = setting.1.set_str("ssid", &new_ssid) {
-                    log::error!("Failed to save SSID to NVS: {:?}", e);
+                    log::error!("Failed to save SSID to NVS: {e:?}");
                 } else {
                     setting.0.ssid = new_ssid;
                 }
@@ -86,10 +86,10 @@ pub fn bt(
                 args.recv_data()
             );
             if let Ok(new_pass) = String::from_utf8(args.recv_data().to_vec()) {
-                log::info!("New pass: {}", new_pass);
+                log::info!("New pass: {new_pass}");
                 let mut setting = setting2.lock().unwrap();
                 if let Err(e) = setting.1.set_str("pass", &new_pass) {
-                    log::error!("Failed to save pass to NVS: {:?}", e);
+                    log::error!("Failed to save pass to NVS: {e:?}");
                 } else {
                     setting.0.pass = new_pass;
                 }
@@ -120,13 +120,13 @@ pub fn bt(
                 args.recv_data()
             );
             if let Ok(mut new_server_url) = String::from_utf8(args.recv_data().to_vec()) {
-                log::info!("New server URL: {}", new_server_url);
+                log::info!("New server URL: {new_server_url}");
                 if !new_server_url.ends_with("/") {
                     new_server_url.push('/');
                 }
                 let mut setting = setting_.lock().unwrap();
                 if let Err(e) = setting.1.set_str("server_url", &new_server_url) {
-                    log::error!("Failed to save server URL to NVS: {:?}", e);
+                    log::error!("Failed to save server URL to NVS: {e:?}");
                 } else {
                     setting.0.server_url = new_server_url;
                 }
@@ -141,7 +141,7 @@ pub fn bt(
     background_gif_characteristic.lock().on_write(move |args| {
         let gif_chunk = args.recv_data();
 
-        if gif_chunk.len() <= 1024 * 1024 && gif_chunk.len() > 0 {
+        if gif_chunk.len() <= 1024 * 1024 && !gif_chunk.is_empty() {
             log::info!("New background GIF received, size: {}", gif_chunk.len());
             let mut setting = setting_gif.lock().unwrap();
             setting.0.background_gif.0.extend_from_slice(gif_chunk);
@@ -155,7 +155,7 @@ pub fn bt(
 
     ble_advertising.lock().set_data(
         BLEAdvertisementData::new()
-            .name(&format!("EchoKit-{}", ble_addr))
+            .name(&format!("EchoKit-{ble_addr}"))
             .add_service_uuid(SERVICE_ID),
     )?;
     ble_advertising.lock().start()?;

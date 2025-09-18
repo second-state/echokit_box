@@ -1,9 +1,11 @@
 partition_table = "partitions.csv"
 
 [connection]
+serial = "/dev/cu.usbserial-14310"
+# serial = "/dev/cu.usbserial-1430"
 
-[[usb_device]]
-vid = "1a86"
-pid = "55d3"
+# [[usb_device]]
+# vid = "1a86"
+# pid = "55d3"
 
 [flash]
