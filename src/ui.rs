@@ -28,11 +28,21 @@ const DISPLAY_WIDTH: usize = 320;
 #[cfg(feature = "box")]
 const DISPLAY_HEIGHT: usize = 240;
 
+#[cfg(feature = "boards")]
 fn init_spi() -> Result<(), EspError> {
     use esp_idf_svc::sys::*;
     const GPIO_NUM_NC: i32 = -1;
+
+    #[cfg(not(feature = "cube"))]
     const DISPLAY_MOSI_PIN: i32 = 47;
+    #[cfg(not(feature = "cube"))]
     const DISPLAY_CLK_PIN: i32 = 21;
+
+    #[cfg(feature = "cube")]
+    const DISPLAY_MOSI_PIN: i32 = 41;
+    #[cfg(feature = "cube")]
+    const DISPLAY_CLK_PIN: i32 = 42;
+
     let mut buscfg = spi_bus_config_t::default();
     buscfg.__bindgen_anon_1.mosi_io_num = DISPLAY_MOSI_PIN;
     buscfg.__bindgen_anon_2.miso_io_num = GPIO_NUM_NC;
@@ -54,7 +64,10 @@ static mut ESP_LCD_PANEL_HANDLE: esp_idf_svc::sys::esp_lcd_panel_handle_t = std:
 #[cfg(feature = "boards")]
 fn init_lcd() -> Result<(), EspError> {
     use esp_idf_svc::sys::*;
+    #[cfg(not(feature = "cube"))]
     const DISPLAY_CS_PIN: i32 = 41;
+    #[cfg(feature = "cube")]
+    const DISPLAY_CS_PIN: i32 = 21;
     const DISPLAY_DC_PIN: i32 = 40;
     ::log::info!("Install panel IO");
     let mut panel_io: esp_lcd_panel_io_handle_t = std::ptr::null_mut();
@@ -84,7 +97,15 @@ fn init_lcd() -> Result<(), EspError> {
     unsafe { ESP_LCD_PANEL_HANDLE = panel };
 
     const DISPLAY_MIRROR_X: bool = false;
+
+    #[cfg(feature = "cube")]
+    const DISPLAY_MIRROR_Y: bool = true;
+    #[cfg(feature = "cube")]
+    const DISPLAY_SWAP_XY: bool = true;
+
+    #[cfg(not(feature = "cube"))]
     const DISPLAY_MIRROR_Y: bool = false;
+    #[cfg(not(feature = "cube"))]
     const DISPLAY_SWAP_XY: bool = false;
     const DISPLAY_INVERT_COLOR: bool = true;
 
@@ -134,6 +155,25 @@ fn get_esp_lcd_panel_handle() -> esp_idf_svc::sys::esp_lcd_panel_handle_t {
     }
 }
 
+#[cfg(feature = "cube")]
+pub fn flush_display(color_data: &[u8], x_start: i32, y_start: i32, x_end: i32, y_end: i32) -> i32 {
+    unsafe {
+        let e = esp_idf_svc::sys::esp_lcd_panel_draw_bitmap(
+            get_esp_lcd_panel_handle(),
+            x_start + 80,
+            y_start,
+            x_end + 80,
+            y_end,
+            color_data.as_ptr().cast(),
+        );
+        if e != 0 {
+            log::warn!("flush_display error: {}", e);
+        }
+        e
+    }
+}
+
+#[cfg(not(feature = "cube"))]
 pub fn flush_display(color_data: &[u8], x_start: i32, y_start: i32, x_end: i32, y_end: i32) -> i32 {
     unsafe {
         let e = esp_idf_svc::sys::esp_lcd_panel_draw_bitmap(
