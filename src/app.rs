@@ -3,7 +3,7 @@ use tokio_websockets::Message;
 
 use crate::{
     audio::{self, AudioData},
-    protocol::ServerEvent,
+    protocol::{self, ServerEvent},
     ws::Server,
 };
 
@@ -56,9 +56,6 @@ async fn select_evt(evt_rx: &mut mpsc::Receiver<Event>, server: &mut Server) -> 
                 }
                 Event::ServerEvent(ServerEvent::HelloChunk { .. })=>{
                     log::info!("Received HelloChunk");
-                }
-                Event::ServerEvent(ServerEvent::BGChunk { .. })=>{
-                    log::info!("Received BGChunk");
                 }
                 _=> {
                     log::info!("Received message: {:?}", msg);
@@ -132,11 +129,10 @@ pub async fn main_work<'d>(
     gui.state = "Idle".to_string();
     gui.display_flush().unwrap();
 
-    let mut new_gui_bg = vec![];
-
     let mut state = State::Idle;
 
     let mut submit_audio = 0.0;
+    let mut start_submit = false;
 
     let mut audio_buffer = Vec::with_capacity(8192);
 
@@ -190,8 +186,20 @@ pub async fn main_work<'d>(
                 if state == State::Listening || state == State::Recording {
                     submit_audio += data.len() as f32 / 32000.0;
                     audio_buffer.extend_from_slice(&data);
-                    // 0.5秒提交一次
-                    if audio_buffer.len() >= 8192 {
+                    // 0.25秒提交一次
+                    if audio_buffer.len() >= 8192 && submit_audio > 0.5 {
+                        if !start_submit {
+                            log::info!("Start submitting audio");
+                            let msg = if state == State::Listening {
+                                protocol::ClientCommand::StartChat
+                            } else {
+                                protocol::ClientCommand::StartRecord
+                            };
+                            server
+                                .send(Message::text(serde_json::to_string(&msg).unwrap()))
+                                .await?;
+                        }
+                        start_submit = true;
                         server
                             .send(Message::binary(bytes::Bytes::from(audio_buffer)))
                             .await?;
@@ -202,21 +210,22 @@ pub async fn main_work<'d>(
                 }
             }
             Event::MicAudioEnd => {
-                if (state == State::Listening || state == State::Recording) && submit_audio > 1.0 {
+                if (state == State::Listening || state == State::Recording) && submit_audio > 0.5 {
                     if !audio_buffer.is_empty() {
                         server
                             .send(Message::binary(bytes::Bytes::from(audio_buffer)))
                             .await?;
                         audio_buffer = Vec::with_capacity(8192);
                     }
-                    if state == State::Listening {
-                        server.send(Message::text("End:Normal")).await?;
-                    } else {
-                        server.send(Message::text("End:Recording")).await?;
-                    }
+                    server
+                        .send(Message::text(
+                            serde_json::to_string(&protocol::ClientCommand::Submit).unwrap(),
+                        ))
+                        .await?;
                     need_compute = metrics.is_timeout();
                 }
                 submit_audio = 0.0;
+                start_submit = false;
             }
             Event::ServerEvent(ServerEvent::ASR { text }) => {
                 log::info!("Received ASR: {:?}", text);
@@ -324,34 +333,7 @@ pub async fn main_work<'d>(
                     gui.display_flush().unwrap();
                 }
             }
-            Event::ServerEvent(ServerEvent::BGStart) => {
-                new_gui_bg = vec![];
-            }
-            Event::ServerEvent(ServerEvent::BGChunk { data }) => {
-                log::info!("Received background chunk");
-                new_gui_bg.extend(data);
-            }
-            Event::ServerEvent(ServerEvent::BGEnd) => {
-                log::info!("Received background end");
-                if !new_gui_bg.is_empty() {
-                    let gui_ = crate::ui::UI::new(Some(&new_gui_bg));
-                    new_gui_bg.clear();
-                    match gui_ {
-                        Ok(new_gui) => {
-                            gui = new_gui;
-                            gui.state = "Background data loaded".to_string();
-                            gui.display_flush().unwrap();
-                        }
-                        Err(e) => {
-                            log::error!("Error creating GUI from background data: {:?}", e);
-                            gui.state = "Error on background data".to_string();
-                            gui.display_flush().unwrap();
-                        }
-                    }
-                } else {
-                    log::warn!("Received empty background data");
-                }
-            }
+
             Event::ServerEvent(ServerEvent::StartVideo | ServerEvent::EndVideo) => {}
         }
     }

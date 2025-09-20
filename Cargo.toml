@@ -24,6 +24,7 @@ experimental = ["esp-idf-svc/experimental"]
 
 boards = []
 box = []
+cube = ["boards"]
 
 [dependencies]
 log = "0.4"
