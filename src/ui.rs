@@ -18,6 +18,8 @@ use u8g2_fonts::U8g2TextStyle;
 
 pub type ColorFormat = Rgb565;
 
+pub const DEFAULT_BACKGROUND: &[u8] = include_bytes!("../assets/echokit.gif");
+
 #[cfg(feature = "boards")]
 const DISPLAY_WIDTH: usize = 240;
 #[cfg(feature = "boards")]

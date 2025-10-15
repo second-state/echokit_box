@@ -57,24 +57,16 @@ fn main() -> anyhow::Result<()> {
 
     // 1MB buffer for GIF
     let mut gif_buf = vec![0; 1024 * 1024];
-    let background_gif = nvs.get_blob("background_gif", &mut gif_buf)?;
+    let background_gif = nvs
+        .get_blob("background_gif", &mut gif_buf)?
+        .unwrap_or(ui::DEFAULT_BACKGROUND);
 
     log::info!("SSID: {:?}", ssid);
     log::info!("PASS: {:?}", pass);
     log::info!("Server URL: {:?}", server_url);
 
     log_heap();
-    if let Some(background_gif) = background_gif {
-        let _ = ui::backgroud(&background_gif);
-    } else {
-        let mut ui = ui::UI::new(None).unwrap();
-        ui.text = "You can hold K0 goto setup page".to_string();
-        for i in 0..3 {
-            ui.state = format!("Device starting... {}", 3 - i);
-            ui.display_flush().unwrap();
-            std::thread::sleep(std::time::Duration::from_secs(1));
-        }
-    }
+    let _ = ui::backgroud(&background_gif);
 
     // Configures the button
     let mut button = esp_idf_svc::hal::gpio::PinDriver::input(peripherals.pins.gpio0)?;
@@ -253,7 +245,7 @@ fn main() -> anyhow::Result<()> {
 
     let server = server.unwrap();
 
-    let ws_task = app::main_work(server, tx1, evt_rx, background_gif);
+    let ws_task = app::main_work(server, tx1, evt_rx, Some(background_gif));
 
     b.spawn(async move {
         loop {
