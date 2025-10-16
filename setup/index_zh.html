@@ -423,10 +423,7 @@
                 return;
             }
 
-            if (!inputValue) {
-                showNotification('错误', '输入值不能为空', true);
-                return;
-            }
+            inputValue = inputValue || '';
 
             try {
                 const characteristic = await service.getCharacteristic(characteristicId);
