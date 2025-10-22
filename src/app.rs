@@ -166,15 +166,15 @@ pub async fn main_work<'d>(
                 }
             }
             Event::Event(Event::K0_) => {
-                if state == State::Idle || state == State::Listening {
-                    log::info!("Received event: K0_");
-                    state = State::Recording;
-                    gui.state = "Recording...".to_string();
-                    gui.text = String::new();
-                    gui.display_flush().unwrap();
-                } else {
-                    log::warn!("Received K0_ while not idle");
-                }
+                // if state == State::Idle || state == State::Listening {
+                //     log::info!("Received event: K0_");
+                //     state = State::Recording;
+                //     gui.state = "Recording...".to_string();
+                //     gui.text = String::new();
+                //     gui.display_flush().unwrap();
+                // } else {
+                //     log::warn!("Received K0_ while not idle");
+                // }
             }
             Event::Event(Event::RESET | Event::K2) => {}
             Event::Event(Event::YES | Event::K1) => {}
