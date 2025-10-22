@@ -11,6 +11,8 @@ mod protocol;
 mod ui;
 mod ws;
 
+const AUDIO_STACK_SIZE: usize = 15 * 1024;
+
 #[derive(Debug, Clone)]
 struct Setting {
     ssid: String,
@@ -27,6 +29,14 @@ fn main() -> anyhow::Result<()> {
     let _fs = esp_idf_svc::io::vfs::MountedEventfs::mount(20)?;
     let partition = esp_idf_svc::nvs::EspDefaultNvsPartition::take()?;
     let nvs = esp_idf_svc::nvs::EspDefaultNvs::new(partition, "setting", true)?;
+
+    let mut conf = esp_idf_svc::hal::task::thread::ThreadSpawnConfiguration::default();
+    conf.stack_alloc_caps = (esp_idf_svc::hal::task::thread::MallocCap::Spiram).into();
+    conf.inherit = true;
+    let r = conf.set();
+    if let Err(e) = r {
+        log::error!("Failed to set thread stack alloc caps: {:?}", e);
+    }
 
     log_heap();
 
@@ -193,25 +203,33 @@ fn main() -> anyhow::Result<()> {
     let (evt_tx, evt_rx) = tokio::sync::mpsc::channel(64);
     let (tx1, rx1) = tokio::sync::mpsc::unbounded_channel();
 
-    #[cfg(feature = "box")]
-    let i2s_task = {
+    let evt_tx_ = evt_tx.clone();
+
+    if cfg!(feature = "box") {
         let bclk = peripherals.pins.gpio21;
         let din = peripherals.pins.gpio47;
         let dout = peripherals.pins.gpio14;
         let ws = peripherals.pins.gpio13;
 
-        audio::i2s_task(
-            peripherals.i2s0,
-            bclk.into(),
-            din.into(),
-            dout.into(),
-            ws.into(),
-            (evt_tx.clone(), rx1),
-        )
-    };
+        let worker = audio::BoxAudioWorker {
+            i2s: peripherals.i2s0,
+            bclk: bclk.into(),
+            din: din.into(),
+            dout: dout.into(),
+            ws: ws.into(),
+            mclk: None,
+        };
 
-    #[cfg(feature = "boards")]
-    let i2s_task = {
+        std::thread::Builder::new()
+            .stack_size(AUDIO_STACK_SIZE)
+            .spawn(move || {
+                let r = worker.run(rx1, evt_tx_);
+                if let Err(e) = r {
+                    log::error!("Audio worker error: {:?}", e);
+                }
+            })
+            .map_err(|e| anyhow::anyhow!("Failed to spawn audio worker thread: {:?}", e))?;
+    } else {
         let sck = peripherals.pins.gpio5;
         let din = peripherals.pins.gpio6;
         let dout = peripherals.pins.gpio7;
@@ -219,18 +237,30 @@ fn main() -> anyhow::Result<()> {
         let bclk = peripherals.pins.gpio15;
         let lrclk = peripherals.pins.gpio16;
 
-        audio::i2s_task_(
-            peripherals.i2s0,
-            ws.into(),
-            sck.into(),
-            din.into(),
-            peripherals.i2s1,
-            bclk.into(),
-            lrclk.into(),
-            dout.into(),
-            (evt_tx.clone(), rx1),
-        )
-    };
+        let worker = audio::BoardsAudioWorker {
+            out_i2s: peripherals.i2s1,
+            out_ws: lrclk.into(),
+            out_clk: bclk.into(),
+            dout: dout.into(),
+            out_mclk: None,
+
+            in_i2s: peripherals.i2s0,
+            in_ws: ws.into(),
+            in_clk: sck.into(),
+            din: din.into(),
+            in_mclk: None,
+        };
+
+        std::thread::Builder::new()
+            .stack_size(AUDIO_STACK_SIZE)
+            .spawn(move || {
+                let r = worker.run(rx1, evt_tx_);
+                if let Err(e) = r {
+                    log::error!("Audio worker error: {:?}", e);
+                }
+            })
+            .map_err(|e| anyhow::anyhow!("Failed to spawn audio worker thread: {:?}", e))?;
+    }
 
     gui.state = "Connecting to server...".to_string();
     gui.text.clear();
@@ -290,7 +320,6 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
-    b.spawn(i2s_task);
     b.block_on(async move {
         let r = ws_task.await;
         if let Err(e) = r {
@@ -308,12 +337,18 @@ pub fn log_heap() {
         use esp_idf_svc::sys::{heap_caps_get_free_size, MALLOC_CAP_INTERNAL, MALLOC_CAP_SPIRAM};
 
         log::info!(
-            "Free SPIRAM heap size: {}",
-            heap_caps_get_free_size(MALLOC_CAP_SPIRAM)
+            "Free SPIRAM heap size: {}KB",
+            heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024
         );
         log::info!(
-            "Free INTERNAL heap size: {}",
-            heap_caps_get_free_size(MALLOC_CAP_INTERNAL)
+            "Free INTERNAL heap size: {}KB",
+            heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024
         );
     }
+}
+
+fn print_stack_high() {
+    let stack_high =
+        unsafe { esp_idf_svc::sys::uxTaskGetStackHighWaterMark2(std::ptr::null_mut()) };
+    log::info!("Stack high: {}", stack_high);
 }
