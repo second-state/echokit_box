@@ -1,5 +1,16 @@
 # Setup the EchoKit device
 
+Firmware for the EchoKit device.
+
+<br>
+<div align="center">
+    <a href="https://echokit.dev/">Website</a> |
+    <a href="https://discord.gg/Fwe3zsT5g3">Discord</a> |
+    <a href="https://youtu.be/Zy-rLT4EgZQ">Live Demo</a> |
+    <a href="https://echokit.dev/docs/quick-start/">Documentation</a>
+</div>
+</br>
+
 ## Buttons on the device
 
 The `RST` button is to restart the system. On the EchoKit devkit, it is labeled as `rst` on the main ESP32 board.

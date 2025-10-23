@@ -121,7 +121,8 @@
                                 <div class="card-body">
                                     <div class="input-group mb-3">
                                         <span class="input-group-text">SSID</span>
-                                        <input type="text" class="form-control" id="ssidInput" placeholder="WiFi network name SSID">
+                                        <input type="text" class="form-control" id="ssidInput"
+                                            placeholder="WiFi network name SSID">
                                     </div>
                                     <div class="d-flex justify-content-between">
                                         <button class="btn btn-primary" id="readSsidButton">
@@ -141,7 +142,8 @@
                                 <div class="card-body">
                                     <div class="input-group mb-3">
                                         <span class="input-group-text">Password</span>
-                                        <input type="password" class="form-control" id="passInput" placeholder="WiFi Password">
+                                        <input type="password" class="form-control" id="passInput"
+                                            placeholder="WiFi Password">
                                     </div>
                                     <div class="d-flex justify-content-between">
                                         <button class="btn btn-primary" id="readPassButton">
@@ -181,7 +183,8 @@
                                 </div>
                                 <div class="card-body">
                                     <div class="mb-3">
-                                        <label for="backgroundImage" class="form-label">Select a background image (GIF)</label>
+                                        <label for="backgroundImage" class="form-label">Select a background image
+                                            (GIF)</label>
                                         <input type="file" class="form-control" id="backgroundImage" accept=".gif"
                                             onchange="validateAndPreviewFile(this)">
                                         <div class="file-info">Must be a GIF file, max 1MB</div>
@@ -421,10 +424,7 @@
                 return;
             }
 
-            if (!inputValue) {
-                showNotification('Error', 'The input cannot be empty', true);
-                return;
-            }
+            inputValue = inputValue || '';
 
             try {
                 const characteristic = await service.getCharacteristic(characteristicId);

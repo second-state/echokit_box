@@ -44,6 +44,9 @@ fn main() -> anyhow::Result<()> {
     ui::lcd_init().unwrap();
 
     log_heap();
+
+    let state = nvs.get_u8("state").ok().flatten().unwrap_or(0);
+
     let mut ssid_buf = [0; 32];
     let ssid = nvs
         .get_str("ssid", &mut ssid_buf)
@@ -67,24 +70,18 @@ fn main() -> anyhow::Result<()> {
 
     // 1MB buffer for GIF
     let mut gif_buf = vec![0; 1024 * 1024];
-    let background_gif = nvs.get_blob("background_gif", &mut gif_buf)?;
+    let background_gif = nvs
+        .get_blob("background_gif", &mut gif_buf)?
+        .unwrap_or(ui::DEFAULT_BACKGROUND);
 
     log::info!("SSID: {:?}", ssid);
     log::info!("PASS: {:?}", pass);
     log::info!("Server URL: {:?}", server_url);
 
+    nvs.set_u8("state", 0).unwrap();
+
     log_heap();
-    if let Some(background_gif) = background_gif {
-        let _ = ui::backgroud(&background_gif);
-    } else {
-        let mut ui = ui::UI::new(None).unwrap();
-        ui.text = "You can hold K0 goto setup page".to_string();
-        for i in 0..3 {
-            ui.state = format!("Device starting... {}", 3 - i);
-            ui.display_flush().unwrap();
-            std::thread::sleep(std::time::Duration::from_secs(1));
-        }
-    }
+    let _ = ui::backgroud(&background_gif);
 
     // Configures the button
     let mut button = esp_idf_svc::hal::gpio::PinDriver::input(peripherals.pins.gpio0)?;
@@ -115,14 +112,14 @@ fn main() -> anyhow::Result<()> {
             || setting.0.pass.is_empty()
             || setting.0.server_url.is_empty()
             || button.is_low()
+            || state == 1
     };
     if need_init {
-        bt::bt(setting.clone()).unwrap();
+        let ble_addr = bt::bt(setting.clone()).unwrap();
         log_heap();
 
         gui.state = "Please setup device by bt".to_string();
-        gui.text = "Goto https://echokit.dev/setup/ to set up the device.\nPress K0 to continue"
-            .to_string();
+        gui.text = format!("Goto https://echokit.dev/setup/ to set up the device.\nPress K0 to continue\nDevice Name: EchoKit-{}", ble_addr);
         gui.display_qrcode("https://echokit.dev/setup/").unwrap();
 
         #[cfg(feature = "boards")]
@@ -185,9 +182,11 @@ fn main() -> anyhow::Result<()> {
     };
     if _wifi.is_err() {
         gui.state = "Failed to connect to wifi".to_string();
-        gui.text = "Press K0 to restart".to_string();
+        gui.text = "Press K0 to open settings".to_string();
         gui.display_flush().unwrap();
         b.block_on(button.wait_for_falling_edge()).unwrap();
+        let setting = setting.lock().unwrap();
+        setting.1.set_u8("state", 1).unwrap();
         unsafe { esp_idf_svc::sys::esp_restart() }
     }
 
@@ -359,15 +358,17 @@ fn main() -> anyhow::Result<()> {
     let server = b.block_on(ws::Server::new(server_url.clone()));
     if server.is_err() {
         gui.state = "Failed to connect to server".to_string();
-        gui.text = format!("Please check your server URL: {server_url}");
+        gui.text = format!("Please check your server URL: {server_url}\nPress K0 to open settings");
         gui.display_flush().unwrap();
         b.block_on(button.wait_for_falling_edge()).unwrap();
+        let setting = setting.lock().unwrap();
+        setting.1.set_u8("state", 1).unwrap();
         unsafe { esp_idf_svc::sys::esp_restart() }
     }
 
     let server = server.unwrap();
 
-    let ws_task = app::main_work(server, tx1, evt_rx, background_gif);
+    let ws_task = app::main_work(server, tx1, evt_rx, Some(background_gif));
 
     b.spawn(async move {
         loop {

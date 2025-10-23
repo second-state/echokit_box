@@ -18,6 +18,8 @@ use u8g2_fonts::U8g2TextStyle;
 
 pub type ColorFormat = Rgb565;
 
+pub const DEFAULT_BACKGROUND: &[u8] = include_bytes!("../assets/echokit.gif");
+
 #[cfg(feature = "boards")]
 const DISPLAY_WIDTH: usize = 240;
 #[cfg(feature = "boards")]
@@ -593,7 +595,7 @@ impl UI {
             .height_mode(embedded_text::style::HeightMode::FitToText)
             .alignment(embedded_text::alignment::HorizontalAlignment::Center)
             .line_height(embedded_graphics::text::LineHeight::Percent(120))
-            .paragraph_spacing(16)
+            .paragraph_spacing(12)
             .build();
         let text_box = TextBox::with_textbox_style(
             &self.text,
