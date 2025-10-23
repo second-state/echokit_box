@@ -226,6 +226,10 @@ pub async fn main_work<'d>(
                 log::info!("Received event: {:?}", evt);
             }
             Event::MicAudioChunk(data) => {
+                if state == State::Idle {
+                    log::warn!("Received MicAudioChunk while in Idle state, ignoring");
+                    continue;
+                }
                 submit_audio += data.len() as f32 / 16000.0;
                 audio_buffer.extend_from_slice(&data);
                 // 0.25秒提交一次
@@ -251,6 +255,10 @@ pub async fn main_work<'d>(
                 }
             }
             Event::MicAudioEnd => {
+                if state == State::Idle {
+                    log::warn!("Received MicAudioEnd while in Idle state, ignoring");
+                    continue;
+                }
                 if submit_audio > 0.5 {
                     if !audio_buffer.is_empty() {
                         let audio_buffer_u8 = unsafe {
