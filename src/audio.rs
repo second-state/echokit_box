@@ -23,8 +23,8 @@ unsafe fn afe_init() -> (
     afe_config.pcm_config.sample_rate = 16000;
     afe_config.afe_ringbuf_size = 40;
     afe_config.vad_min_noise_ms = 500;
-    afe_config.vad_min_speech_ms = 300;
-    afe_config.vad_mode = esp_sr::vad_mode_t_VAD_MODE_4;
+    // afe_config.vad_min_speech_ms = 300;
+    afe_config.vad_mode = esp_sr::vad_mode_t_VAD_MODE_3;
     afe_config.agc_init = true;
     afe_config.afe_linear_gain = 2.0;
     afe_config.aec_init = true;
@@ -187,6 +187,8 @@ fn afe_worker(afe_handle: Arc<AFE>, tx: MicTx, trigger_mean_value: f32) -> anyho
                     tx.blocking_send(crate::app::Event::MicAudioChunk(cache_buffer))
                         .map_err(|_| anyhow::anyhow!("Failed to send data"))?;
                     cache_buffer = Vec::with_capacity(16000);
+                    tx.blocking_send(crate::app::Event::MicAudioEnd)
+                        .map_err(|_| anyhow::anyhow!("Failed to send data"))?;
                 } else {
                     log::info!(
                         "Dropping cached {} bytes, mean:{} below trigger {}",
@@ -196,9 +198,11 @@ fn afe_worker(afe_handle: Arc<AFE>, tx: MicTx, trigger_mean_value: f32) -> anyho
                     );
                     cache_buffer.clear();
                 }
+            } else {
+                tx.blocking_send(crate::app::Event::MicAudioEnd)
+                    .map_err(|_| anyhow::anyhow!("Failed to send data"))?;
             }
-            tx.blocking_send(crate::app::Event::MicAudioEnd)
-                .map_err(|_| anyhow::anyhow!("Failed to send data"))?;
+
             speech = false;
         }
     }
