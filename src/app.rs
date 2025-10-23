@@ -28,6 +28,8 @@ impl Event {
 
     pub const K1: &'static str = "k1";
     pub const K2: &'static str = "k2";
+    pub const VOL_UP: &'static str = "vol_up";
+    pub const VOL_DOWN: &'static str = "vol_down";
 }
 
 async fn select_evt(evt_rx: &mut mpsc::Receiver<Event>, server: &mut Server) -> Option<Event> {
@@ -138,6 +140,7 @@ pub async fn main_work<'d>(
     let mut metrics = DownloadMetrics::new();
     let mut need_compute = true;
     let mut speed = 0.8;
+    let mut vol = 0.5;
 
     let mut hello_wav = Vec::with_capacity(1024 * 30);
 
@@ -167,7 +170,30 @@ pub async fn main_work<'d>(
                 }
             }
             Event::Event(Event::K0_) => {}
-            Event::Event(Event::RESET | Event::K2) => {}
+            Event::Event(Event::VOL_UP) => {
+                vol += 0.1;
+                if vol > 1.0 {
+                    vol = 1.0;
+                }
+                player_tx
+                    .send(AudioEvent::VolSet(vol))
+                    .map_err(|e| anyhow::anyhow!("Error sending volume set: {e:?}"))?;
+                log::info!("Volume set to {:.1}", vol);
+                gui.state = format!("Volume: {:.1}", vol);
+                gui.display_flush().unwrap();
+            }
+            Event::Event(Event::VOL_DOWN) => {
+                vol -= 0.1;
+                if vol < 0.1 {
+                    vol = 0.1;
+                }
+                player_tx
+                    .send(AudioEvent::VolSet(vol))
+                    .map_err(|e| anyhow::anyhow!("Error sending volume set: {e:?}"))?;
+                log::info!("Volume set to {:.1}", vol);
+                gui.state = format!("Volume: {:.1}", vol);
+                gui.display_flush().unwrap();
+            }
             Event::Event(Event::YES | Event::K1) => {}
             Event::Event(Event::NO) => {}
             Event::Event(evt) => {

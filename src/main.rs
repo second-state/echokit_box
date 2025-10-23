@@ -260,6 +260,90 @@ fn main() -> anyhow::Result<()> {
                 }
             })
             .map_err(|e| anyhow::anyhow!("Failed to spawn audio worker thread: {:?}", e))?;
+
+        if cfg!(feature = "cube") {
+            let mut vol_up_btn = esp_idf_svc::hal::gpio::PinDriver::input(peripherals.pins.gpio10)?;
+            vol_up_btn.set_pull(esp_idf_svc::hal::gpio::Pull::Up)?;
+            vol_up_btn.set_interrupt_type(esp_idf_svc::hal::gpio::InterruptType::PosEdge)?;
+
+            let evt_tx_vol_up = evt_tx.clone();
+            b.spawn(async move {
+                loop {
+                    let _ = vol_up_btn.wait_for_falling_edge().await;
+                    log::info!("Button vol up pressed {:?}", vol_up_btn.get_level());
+                    if evt_tx_vol_up
+                        .send(app::Event::Event(app::Event::VOL_UP))
+                        .await
+                        .is_err()
+                    {
+                        log::error!("Failed to send VOL_UP event");
+                        break;
+                    }
+                }
+            });
+
+            let mut vol_down_btn =
+                esp_idf_svc::hal::gpio::PinDriver::input(peripherals.pins.gpio39)?;
+            vol_down_btn.set_pull(esp_idf_svc::hal::gpio::Pull::Up)?;
+            vol_down_btn.set_interrupt_type(esp_idf_svc::hal::gpio::InterruptType::PosEdge)?;
+
+            let evt_tx_vol_down = evt_tx.clone();
+            b.spawn(async move {
+                loop {
+                    let _ = vol_down_btn.wait_for_falling_edge().await;
+                    log::info!("Button vol down pressed {:?}", vol_down_btn.get_level());
+                    if evt_tx_vol_down
+                        .send(app::Event::Event(app::Event::VOL_DOWN))
+                        .await
+                        .is_err()
+                    {
+                        log::error!("Failed to send VOL_DOWN event");
+                        break;
+                    }
+                }
+            });
+        } else {
+            let mut vol_up_btn = esp_idf_svc::hal::gpio::PinDriver::input(peripherals.pins.gpio38)?;
+            vol_up_btn.set_pull(esp_idf_svc::hal::gpio::Pull::Up)?;
+            vol_up_btn.set_interrupt_type(esp_idf_svc::hal::gpio::InterruptType::PosEdge)?;
+
+            let evt_tx_vol_up = evt_tx.clone();
+            b.spawn(async move {
+                loop {
+                    let _ = vol_up_btn.wait_for_falling_edge().await;
+                    log::info!("Button vol up pressed {:?}", vol_up_btn.get_level());
+                    if evt_tx_vol_up
+                        .send(app::Event::Event(app::Event::VOL_UP))
+                        .await
+                        .is_err()
+                    {
+                        log::error!("Failed to send VOL_UP event");
+                        break;
+                    }
+                }
+            });
+
+            let mut vol_down_btn =
+                esp_idf_svc::hal::gpio::PinDriver::input(peripherals.pins.gpio39)?;
+            vol_down_btn.set_pull(esp_idf_svc::hal::gpio::Pull::Up)?;
+            vol_down_btn.set_interrupt_type(esp_idf_svc::hal::gpio::InterruptType::PosEdge)?;
+
+            let evt_tx_vol_down = evt_tx.clone();
+            b.spawn(async move {
+                loop {
+                    let _ = vol_down_btn.wait_for_falling_edge().await;
+                    log::info!("Button vol down pressed {:?}", vol_down_btn.get_level());
+                    if evt_tx_vol_down
+                        .send(app::Event::Event(app::Event::VOL_DOWN))
+                        .await
+                        .is_err()
+                    {
+                        log::error!("Failed to send VOL_DOWN event");
+                        break;
+                    }
+                }
+            });
+        }
     }
 
     gui.state = "Connecting to server...".to_string();

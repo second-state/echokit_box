@@ -247,6 +247,7 @@ pub enum AudioEvent {
     SpeechChunki16(Vec<i16>),
     EndSpeech(tokio::sync::oneshot::Sender<()>),
     StopSpeech,
+    VolSet(f32),
 }
 
 enum SendBufferItem {
@@ -359,6 +360,9 @@ fn audio_task_run(
                 }
                 AudioEvent::EndSpeech(sender) => {
                     send_buffer.push_back_end_speech(sender);
+                }
+                AudioEvent::VolSet(vol) => {
+                    send_buffer.volume = vol;
                 }
                 AudioEvent::StopSpeech => {
                     allow_speech = false;
