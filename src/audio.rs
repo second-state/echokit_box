@@ -23,7 +23,7 @@ unsafe fn afe_init() -> (
     afe_config.pcm_config.sample_rate = 16000;
     afe_config.afe_ringbuf_size = 40;
     afe_config.vad_min_noise_ms = 500;
-    afe_config.vad_min_speech_ms = 400;
+    afe_config.vad_min_speech_ms = 300;
     afe_config.vad_mode = esp_sr::vad_mode_t_VAD_MODE_4;
     afe_config.agc_init = true;
     afe_config.afe_linear_gain = 2.0;
@@ -115,7 +115,8 @@ impl AFE {
             }
 
             let data_size = result.data_size;
-            let vad_state = result.vad_state;
+            let speech = result.vad_state == esp_sr::vad_state_t_VAD_SPEECH;
+
             let mut data = Vec::with_capacity((data_size + result.vad_cache_size) as usize / 2);
             if result.vad_cache_size > 0 {
                 let data_ = std::slice::from_raw_parts(
@@ -129,7 +130,6 @@ impl AFE {
                 data.extend_from_slice(data_);
             }
 
-            let speech = vad_state == esp_sr::vad_state_t_VAD_SPEECH;
             Ok(AFEResult { data, speech })
         }
     }
@@ -175,11 +175,7 @@ fn afe_worker(afe_handle: Arc<AFE>, tx: MicTx, trigger_mean_value: f32) -> anyho
 
         if speech {
             log::info!("Speech ended");
-            if cache_buffer.is_empty() {
-                tx.blocking_send(crate::app::Event::MicAudioChunk(result.data))
-                    .map_err(|_| anyhow::anyhow!("Failed to send data"))?;
-            } else {
-                cache_buffer.extend_from_slice(&result.data);
+            if !cache_buffer.is_empty() {
                 let len = cache_buffer.len() as f32;
                 let mean = cache_buffer
                     .iter()
@@ -590,7 +586,7 @@ impl BoardsAudioWorker {
 
         let _afe_r = std::thread::Builder::new()
             .stack_size(8 * 1024)
-            .spawn(|| afe_worker(afe_handle_, tx, 500.0))?;
+            .spawn(|| afe_worker(afe_handle_, tx, 450.0))?;
 
         audio_task_run(&mut rx, &mut fn_read, &mut fn_write, &afe_handle)
     }
