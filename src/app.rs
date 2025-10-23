@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use tokio::sync::mpsc;
 use tokio_websockets::Message;
 
@@ -30,9 +32,24 @@ impl Event {
     pub const K2: &'static str = "k2";
     pub const VOL_UP: &'static str = "vol_up";
     pub const VOL_DOWN: &'static str = "vol_down";
+
+    pub const NOTIFY: &'static str = "notify";
 }
 
-async fn select_evt(evt_rx: &mut mpsc::Receiver<Event>, server: &mut Server) -> Option<Event> {
+async fn select_evt(
+    evt_rx: &mut mpsc::Receiver<Event>,
+    server: &mut Server,
+    notify: &tokio::sync::Notify,
+    wait_notify: bool,
+) -> Option<Event> {
+    let s_fut = async {
+        if wait_notify {
+            notify.notified().await;
+            Ok(Event::Event(Event::NOTIFY))
+        } else {
+            server.recv().await
+        }
+    };
     tokio::select! {
         Some(evt) = evt_rx.recv() => {
             match &evt {
@@ -51,7 +68,7 @@ async fn select_evt(evt_rx: &mut mpsc::Receiver<Event>, server: &mut Server) -> 
             }
             Some(evt)
         }
-        Ok(msg) = server.recv() => {
+        Ok(msg) = s_fut => {
             match msg {
                 Event::ServerEvent(ServerEvent::AudioChunk { .. })=>{
                     log::debug!("Received AudioChunk");
@@ -120,6 +137,7 @@ pub async fn main_work<'d>(
     #[derive(PartialEq, Eq)]
     enum State {
         Listening,
+        Waiting,
         Speaking,
         Idle,
     }
@@ -144,7 +162,10 @@ pub async fn main_work<'d>(
 
     let mut hello_wav = Vec::with_capacity(1024 * 30);
 
-    while let Some(evt) = select_evt(&mut evt_rx, &mut server).await {
+    let notify: Arc<tokio::sync::Notify> = Arc::new(tokio::sync::Notify::new());
+    let mut wait_notify = false;
+
+    while let Some(evt) = select_evt(&mut evt_rx, &mut server, &notify, wait_notify).await {
         match evt {
             Event::Event(Event::GAIA | Event::K0) => {
                 log::info!("Received event: gaia");
@@ -156,12 +177,14 @@ pub async fn main_work<'d>(
                     gui.state = "Idle".to_string();
                     gui.display_flush().unwrap();
                 } else {
-                    let (tx, rx) = tokio::sync::oneshot::channel();
+                    let hello_notify = notify.clone();
                     player_tx
-                        .send(AudioEvent::Hello(tx))
+                        .send(AudioEvent::Hello(hello_notify.clone()))
                         .map_err(|e| anyhow::anyhow!("Error sending hello: {e:?}"))?;
                     log::info!("Waiting for hello response");
-                    let _ = rx.await;
+                    let _ = hello_notify.notified().await;
+
+                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                     log::info!("Hello response received");
 
                     state = State::Listening;
@@ -195,7 +218,10 @@ pub async fn main_work<'d>(
                 gui.display_flush().unwrap();
             }
             Event::Event(Event::YES | Event::K1) => {}
-            Event::Event(Event::NO) => {}
+            Event::Event(Event::NOTIFY) => {
+                log::info!("Received notify event");
+                wait_notify = false;
+            }
             Event::Event(evt) => {
                 log::info!("Received event: {:?}", evt);
             }
@@ -247,17 +273,16 @@ pub async fn main_work<'d>(
                 }
                 submit_audio = 0.0;
                 start_submit = false;
+                state = State::Waiting;
+                gui.state = "Waiting...".to_string();
+                gui.display_flush().unwrap();
             }
             Event::ServerEvent(ServerEvent::ASR { text }) => {
                 log::info!("Received ASR: {:?}", text);
+                state = State::Speaking;
                 gui.state = "ASR".to_string();
                 gui.text = text.trim().to_string();
                 gui.display_flush().unwrap();
-                if !text.trim().is_empty() {
-                    player_tx
-                        .send(AudioEvent::StopSpeech)
-                        .map_err(|_| anyhow::anyhow!("Error sending stop speech"))?;
-                }
             }
             Event::ServerEvent(ServerEvent::Action { action }) => {
                 log::info!("Received action");
@@ -268,8 +293,11 @@ pub async fn main_work<'d>(
                 if need_compute {
                     metrics.reset();
                 }
+                if state != State::Speaking {
+                    log::warn!("Received StartAudio while not in speaking state");
+                    continue;
+                }
                 log::info!("Received audio start: {:?}", text);
-                state = State::Speaking;
                 gui.state = format!("[{:.2}x]|Speaking...", speed);
                 gui.text = text.trim().to_string();
                 gui.display_flush().unwrap();
@@ -304,6 +332,11 @@ pub async fn main_work<'d>(
             Event::ServerEvent(ServerEvent::EndAudio) => {
                 log::info!("Received audio end");
 
+                if state != State::Speaking {
+                    log::warn!("Received EndAudio while not in speaking state");
+                    continue;
+                }
+
                 if need_compute {
                     speed = metrics.speed();
                     need_compute = false;
@@ -320,14 +353,13 @@ pub async fn main_work<'d>(
                     recv_audio_buffer = Vec::with_capacity(8192);
                 }
 
-                let (tx, rx) = tokio::sync::oneshot::channel();
-                if let Err(e) = player_tx.send(AudioEvent::EndSpeech(tx)) {
+                if let Err(e) = player_tx.send(AudioEvent::EndSpeech(notify.clone())) {
                     log::error!("Error sending audio chunk: {:?}", e);
                     gui.state = "Error on audio chunk".to_string();
                     gui.display_flush().unwrap();
                 }
-                let _ = rx.await;
-                gui.display_flush().unwrap();
+
+                wait_notify = true;
             }
 
             Event::ServerEvent(ServerEvent::EndResponse) => {
@@ -335,6 +367,7 @@ pub async fn main_work<'d>(
                 state = State::Listening;
                 gui.state = "Listening...".to_string();
                 gui.display_flush().unwrap();
+                recv_audio_buffer.clear();
             }
             Event::ServerEvent(ServerEvent::HelloStart) => {
                 hello_wav.clear();

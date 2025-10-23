@@ -236,20 +236,21 @@ pub fn player_welcome(
 }
 
 pub enum AudioEvent {
-    Hello(tokio::sync::oneshot::Sender<()>),
+    Hello(Arc<tokio::sync::Notify>),
     SetHello(Vec<u8>),
     StartSpeech,
     SpeechChunk(Vec<u8>),
     SpeechChunki16(Vec<i16>),
-    EndSpeech(tokio::sync::oneshot::Sender<()>),
+    EndSpeech(Arc<tokio::sync::Notify>),
     StopSpeech,
     VolSet(f32),
 }
 
 enum SendBufferItem {
     Audio(Vec<i16>),
-    EndSpeech(tokio::sync::oneshot::Sender<()>),
+    EndSpeech(Arc<tokio::sync::Notify>),
 }
+
 struct SendBuffer {
     cache: std::collections::LinkedList<SendBufferItem>,
     chunk_size: usize,
@@ -292,19 +293,33 @@ impl SendBuffer {
         }
     }
 
-    fn push_back_end_speech(&mut self, tx: tokio::sync::oneshot::Sender<()>) {
-        self.cache.push_back(SendBufferItem::EndSpeech(tx));
+    fn push_back_end_speech(&mut self, notify: Arc<tokio::sync::Notify>) {
+        self.cache.push_back(SendBufferItem::EndSpeech(notify));
     }
 
     fn get_chunk(&mut self) -> Option<Vec<i16>> {
         loop {
             match self.cache.pop_front() {
                 Some(SendBufferItem::Audio(v)) => return Some(v),
-                Some(SendBufferItem::EndSpeech(tx)) => {
-                    let _ = tx.send(());
+                Some(SendBufferItem::EndSpeech(notify)) => {
+                    let _ = notify.notify_one();
                     continue;
                 }
                 None => return None,
+            }
+        }
+    }
+
+    fn clear(&mut self) {
+        loop {
+            match self.cache.pop_front() {
+                Some(SendBufferItem::EndSpeech(tx)) => {
+                    let _ = tx.notify_waiters();
+                }
+                Some(_) => {}
+                None => {
+                    break;
+                }
             }
         }
     }
@@ -337,10 +352,12 @@ fn audio_task_run(
     loop {
         if let Ok(event) = rx.try_recv() {
             match event {
-                AudioEvent::Hello(sender) => {
+                AudioEvent::Hello(notify) => {
+                    log::info!("Received Hello event");
                     allow_speech = true;
+                    send_buffer.clear();
                     send_buffer.push_u8(&hello_wav);
-                    send_buffer.push_back_end_speech(sender);
+                    send_buffer.push_back_end_speech(notify);
                 }
                 AudioEvent::SetHello(hello) => {
                     hello_wav = hello;
@@ -592,36 +609,36 @@ impl BoardsAudioWorker {
     }
 }
 
-pub fn echo_test(mut rx: MicRx, mut tx: PlayerTx) -> anyhow::Result<()> {
-    let mut record_sample = Vec::with_capacity(1024);
+// pub fn echo_test(mut rx: MicRx, mut tx: PlayerTx) -> anyhow::Result<()> {
+//     let mut record_sample = Vec::with_capacity(1024);
 
-    loop {
-        match rx.blocking_recv() {
-            Some(crate::app::Event::MicAudioChunk(data)) => {
-                record_sample.extend_from_slice(&data);
-            }
-            Some(crate::app::Event::MicAudioEnd) => {
-                let len = record_sample.len() as f32;
-                let mean = record_sample
-                    .iter()
-                    .map(|x| x.abs() as f32 / len)
-                    .sum::<f32>();
+//     loop {
+//         match rx.blocking_recv() {
+//             Some(crate::app::Event::MicAudioChunk(data)) => {
+//                 record_sample.extend_from_slice(&data);
+//             }
+//             Some(crate::app::Event::MicAudioEnd) => {
+//                 let len = record_sample.len() as f32;
+//                 let mean = record_sample
+//                     .iter()
+//                     .map(|x| x.abs() as f32 / len)
+//                     .sum::<f32>();
 
-                log::info!(
-                    "MicAudioEnd, sending back {} bytes mean:{mean}",
-                    len / 16000.0
-                );
-                let (sender, receiver) = tokio::sync::oneshot::channel();
-                tx.send(AudioEvent::StartSpeech)?;
-                tx.send(AudioEvent::SpeechChunki16(record_sample.clone()))?;
-                tx.send(AudioEvent::EndSpeech(sender))?;
-                let _ = receiver.blocking_recv();
-                record_sample.clear();
-            }
-            Some(_) => {}
-            None => break,
-        }
-    }
-    log::warn!("Echo test exited");
-    Ok(())
-}
+//                 log::info!(
+//                     "MicAudioEnd, sending back {} bytes mean:{mean}",
+//                     len / 16000.0
+//                 );
+//                 let (sender, receiver) = tokio::sync::oneshot::channel();
+//                 tx.send(AudioEvent::StartSpeech)?;
+//                 tx.send(AudioEvent::SpeechChunki16(record_sample.clone()))?;
+//                 tx.send(AudioEvent::EndSpeech(sender))?;
+//                 let _ = receiver.blocking_recv();
+//                 record_sample.clear();
+//             }
+//             Some(_) => {}
+//             None => break,
+//         }
+//     }
+//     log::warn!("Echo test exited");
+//     Ok(())
+// }
