@@ -126,6 +126,8 @@ impl DownloadMetrics {
     }
 }
 
+const SPEED_LIMIT: f64 = 1.5;
+
 // TODO: 按键打断
 // TODO: 超时不监听
 pub async fn main_work<'d>(
@@ -157,13 +159,14 @@ pub async fn main_work<'d>(
 
     let mut metrics = DownloadMetrics::new();
     let mut need_compute = true;
-    let mut speed = 0.8;
+    let mut speed = 1.5;
     let mut vol = 0.5;
 
     let mut hello_wav = Vec::with_capacity(1024 * 30);
 
     let notify: Arc<tokio::sync::Notify> = Arc::new(tokio::sync::Notify::new());
     let mut wait_notify = false;
+    let mut init_hello = false;
 
     while let Some(evt) = select_evt(&mut evt_rx, &mut server, &notify, wait_notify).await {
         match evt {
@@ -184,7 +187,25 @@ pub async fn main_work<'d>(
                     log::info!("Waiting for hello response");
                     let _ = hello_notify.notified().await;
 
-                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                    if state == State::Speaking || state == State::Waiting {
+                        for i in 0..3 {
+                            let r = server.reconnect().await;
+                            if r.is_ok() {
+                                log::info!("Reconnected to server on attempt {}", i + 1);
+                                break;
+                            } else {
+                                log::warn!("Reconnect attempt {} failed: {:?}", i + 1, r.err());
+                                if i == 2 {
+                                    return Err(anyhow::anyhow!(
+                                        "Failed to reconnect after 3 attempts"
+                                    ));
+                                }
+                            }
+                        }
+                    } else {
+                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                    }
+
                     log::info!("Hello response received");
 
                     state = State::Listening;
@@ -226,8 +247,8 @@ pub async fn main_work<'d>(
                 log::info!("Received event: {:?}", evt);
             }
             Event::MicAudioChunk(data) => {
-                if state == State::Idle {
-                    log::warn!("Received MicAudioChunk while in Idle state, ignoring");
+                if state != State::Listening {
+                    log::debug!("Received MicAudioChunk while no Listening state, ignoring");
                     continue;
                 }
                 submit_audio += data.len() as f32 / 16000.0;
@@ -255,8 +276,8 @@ pub async fn main_work<'d>(
                 }
             }
             Event::MicAudioEnd => {
-                if state == State::Idle {
-                    log::warn!("Received MicAudioEnd while in Idle state, ignoring");
+                if state != State::Listening {
+                    log::debug!("Received MicAudioEnd while no Listening state, ignoring");
                     continue;
                 }
                 if submit_audio > 0.5 {
@@ -281,6 +302,7 @@ pub async fn main_work<'d>(
                 }
                 submit_audio = 0.0;
                 start_submit = false;
+                wait_notify = false;
                 state = State::Waiting;
                 gui.state = "Waiting...".to_string();
                 gui.display_flush().unwrap();
@@ -302,7 +324,7 @@ pub async fn main_work<'d>(
                     metrics.reset();
                 }
                 if state != State::Speaking {
-                    log::warn!("Received StartAudio while not in speaking state");
+                    log::debug!("Received StartAudio while not in speaking state");
                     continue;
                 }
                 log::info!("Received audio start: {:?}", text);
@@ -316,7 +338,7 @@ pub async fn main_work<'d>(
             Event::ServerEvent(ServerEvent::AudioChunk { data }) => {
                 log::debug!("Received audio chunk");
                 if state != State::Speaking {
-                    log::warn!("Received audio chunk while not speaking");
+                    log::debug!("Received audio chunk while not speaking");
                     continue;
                 }
 
@@ -324,7 +346,7 @@ pub async fn main_work<'d>(
                     metrics.add_data(data.len());
                 }
 
-                if speed < 1.0 {
+                if speed < SPEED_LIMIT {
                     if let Err(e) = player_tx.send(AudioEvent::SpeechChunk(data)) {
                         log::error!("Error sending audio chunk: {:?}", e);
                         gui.state = "Error on audio chunk".to_string();
@@ -341,18 +363,11 @@ pub async fn main_work<'d>(
                 log::info!("Received audio end");
 
                 if state != State::Speaking {
-                    log::warn!("Received EndAudio while not in speaking state");
+                    log::debug!("Received EndAudio while not in speaking state");
                     continue;
                 }
 
-                if need_compute {
-                    speed = metrics.speed();
-                    need_compute = false;
-                }
-
-                log::info!("Audio speed: {:.2}x", speed);
-
-                if speed > 1.0 && recv_audio_buffer.len() > 0 {
+                if speed > SPEED_LIMIT && recv_audio_buffer.len() > 0 {
                     if let Err(e) = player_tx.send(AudioEvent::SpeechChunki16(recv_audio_buffer)) {
                         log::error!("Error sending audio chunk: {:?}", e);
                         gui.state = "Error on audio chunk".to_string();
@@ -367,7 +382,16 @@ pub async fn main_work<'d>(
                     gui.display_flush().unwrap();
                 }
 
+                if need_compute {
+                    speed = metrics.speed();
+                    need_compute = false;
+                }
+
+                log::info!("Audio speed: {:.2}x", speed);
+
                 wait_notify = true;
+
+                crate::log_heap();
             }
 
             Event::ServerEvent(ServerEvent::EndResponse) => {
@@ -382,19 +406,21 @@ pub async fn main_work<'d>(
             }
             Event::ServerEvent(ServerEvent::HelloChunk { data }) => {
                 log::info!("Received hello chunk");
-                hello_wav.extend_from_slice(&data);
+                if !init_hello {
+                    hello_wav.extend_from_slice(&data);
+                }
             }
             Event::ServerEvent(ServerEvent::HelloEnd) => {
                 log::info!("Received hello end");
-                if let Err(_) = player_tx.send(AudioEvent::SetHello(hello_wav)) {
-                    log::error!("Error sending hello end");
-                    gui.state = "Error on hello end".to_string();
-                    gui.display_flush().unwrap();
-                } else {
-                    gui.state = "Hello set".to_string();
-                    gui.display_flush().unwrap();
+                if !init_hello {
+                    if let Err(_) = player_tx.send(AudioEvent::SetHello(hello_wav)) {
+                        log::error!("Error sending hello end");
+                        gui.state = "Error on hello end".to_string();
+                        gui.display_flush().unwrap();
+                    }
+                    hello_wav = Vec::with_capacity(1024 * 30);
+                    init_hello = true;
                 }
-                hello_wav = Vec::with_capacity(1024 * 30);
             }
 
             Event::ServerEvent(ServerEvent::StartVideo | ServerEvent::EndVideo) => {}

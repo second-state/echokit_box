@@ -31,6 +31,18 @@ impl Server {
         self.timeout = timeout;
     }
 
+    pub async fn reconnect(&mut self) -> anyhow::Result<()> {
+        let uri = self.uri.clone();
+        let (ws, _resp) = tokio_websockets::ClientBuilder::new()
+            .uri(&format!("{uri}?reconnect=true"))?
+            .connect()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to reconnect: {}", e))?;
+
+        self.ws = ws;
+        Ok(())
+    }
+
     pub async fn send(&mut self, msg: Message) -> anyhow::Result<()> {
         tokio::time::timeout(self.timeout, self.ws.send(msg))
             .map_err(|_| anyhow::anyhow!("Timeout sending message"))

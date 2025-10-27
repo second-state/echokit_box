@@ -318,7 +318,7 @@ impl SendBuffer {
         loop {
             match self.cache.pop_front() {
                 Some(SendBufferItem::EndSpeech(tx)) => {
-                    let _ = tx.notify_waiters();
+                    let _ = tx.notify_one();
                 }
                 Some(_) => {}
                 None => {
@@ -607,7 +607,7 @@ impl BoardsAudioWorker {
 
         let _afe_r = std::thread::Builder::new()
             .stack_size(8 * 1024)
-            .spawn(|| afe_worker(afe_handle_, tx, 450.0))?;
+            .spawn(|| afe_worker(afe_handle_, tx, 3000.0))?;
 
         audio_task_run(&mut rx, &mut fn_read, &mut fn_write, &afe_handle)
     }
