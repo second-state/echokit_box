@@ -126,7 +126,7 @@ impl DownloadMetrics {
     }
 }
 
-const SPEED_LIMIT: f64 = 1.5;
+const SPEED_LIMIT: f64 = 1.0;
 
 // TODO: 按键打断
 // TODO: 超时不监听
@@ -179,6 +179,7 @@ pub async fn main_work<'d>(
                     state = State::Idle;
                     gui.state = "Idle".to_string();
                     gui.display_flush().unwrap();
+                    server.close().await?;
                 } else {
                     let hello_notify = notify.clone();
                     player_tx
@@ -187,24 +188,7 @@ pub async fn main_work<'d>(
                     log::info!("Waiting for hello response");
                     let _ = hello_notify.notified().await;
 
-                    if state == State::Speaking || state == State::Waiting {
-                        for i in 0..3 {
-                            let r = server.reconnect().await;
-                            if r.is_ok() {
-                                log::info!("Reconnected to server on attempt {}", i + 1);
-                                break;
-                            } else {
-                                log::warn!("Reconnect attempt {} failed: {:?}", i + 1, r.err());
-                                if i == 2 {
-                                    return Err(anyhow::anyhow!(
-                                        "Failed to reconnect after 3 attempts"
-                                    ));
-                                }
-                            }
-                        }
-                    } else {
-                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-                    }
+                    server.reconnect_with_retry(3).await?;
 
                     log::info!("Hello response received");
 
@@ -257,10 +241,10 @@ pub async fn main_work<'d>(
                 if audio_buffer.len() >= 8192 && submit_audio > 0.5 {
                     if !start_submit {
                         log::info!("Start submitting audio");
-                        let msg = protocol::ClientCommand::StartChat;
                         server
-                            .send(Message::text(serde_json::to_string(&msg).unwrap()))
+                            .send_client_command(protocol::ClientCommand::StartChat)
                             .await?;
+                        log::info!("Submitted StartChat command");
                     }
                     start_submit = true;
                     let audio_buffer_u8 = unsafe {
@@ -270,12 +254,13 @@ pub async fn main_work<'d>(
                         )
                     };
                     server
-                        .send(Message::binary(bytes::Bytes::from(audio_buffer_u8)))
+                        .send_client_audio_chunk(bytes::Bytes::from(audio_buffer_u8))
                         .await?;
                     audio_buffer = Vec::with_capacity(8192);
                 }
             }
             Event::MicAudioEnd => {
+                log::info!("Received MicAudioEnd");
                 if state != State::Listening {
                     log::debug!("Received MicAudioEnd while no Listening state, ignoring");
                     continue;
@@ -289,15 +274,14 @@ pub async fn main_work<'d>(
                             )
                         };
                         server
-                            .send(Message::binary(bytes::Bytes::from(audio_buffer_u8)))
+                            .send_client_audio_chunk(bytes::Bytes::from(audio_buffer_u8))
                             .await?;
                         audio_buffer = Vec::with_capacity(8192);
                     }
                     server
-                        .send(Message::text(
-                            serde_json::to_string(&protocol::ClientCommand::Submit).unwrap(),
-                        ))
+                        .send_client_command(protocol::ClientCommand::Submit)
                         .await?;
+                    log::info!("Submitted audio");
                     need_compute = metrics.is_timeout();
                 }
                 submit_audio = 0.0;
@@ -367,7 +351,7 @@ pub async fn main_work<'d>(
                     continue;
                 }
 
-                if speed > SPEED_LIMIT && recv_audio_buffer.len() > 0 {
+                if recv_audio_buffer.len() > 0 {
                     if let Err(e) = player_tx.send(AudioEvent::SpeechChunki16(recv_audio_buffer)) {
                         log::error!("Error sending audio chunk: {:?}", e);
                         gui.state = "Error on audio chunk".to_string();

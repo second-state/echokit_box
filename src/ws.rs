@@ -43,11 +43,49 @@ impl Server {
         Ok(())
     }
 
+    pub async fn reconnect_with_retry(&mut self, retries: usize) -> anyhow::Result<()> {
+        for attempt in 0..retries {
+            match self.reconnect().await {
+                Ok(_) => return Ok(()),
+                Err(e) => {
+                    log::warn!(
+                        "Reconnect attempt {}/{} failed: {}",
+                        attempt + 1,
+                        retries,
+                        e
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                }
+            }
+        }
+        Err(anyhow::anyhow!("All reconnect attempts failed"))
+    }
+
+    pub async fn close(&mut self) -> anyhow::Result<()> {
+        self.ws.close().await?;
+        Ok(())
+    }
+
     pub async fn send(&mut self, msg: Message) -> anyhow::Result<()> {
         tokio::time::timeout(self.timeout, self.ws.send(msg))
             .map_err(|_| anyhow::anyhow!("Timeout sending message"))
             .await??;
         Ok(())
+    }
+
+    pub async fn send_client_command(
+        &mut self,
+        cmd: crate::protocol::ClientCommand,
+    ) -> anyhow::Result<()> {
+        let payload = serde_json::to_string(&cmd)
+            .map_err(|e| anyhow::anyhow!("Failed to serialize command: {}", e))?;
+        let msg = Message::text(payload);
+        self.send(msg).await
+    }
+
+    pub async fn send_client_audio_chunk(&mut self, chunk: bytes::Bytes) -> anyhow::Result<()> {
+        let msg = Message::binary(chunk);
+        self.send(msg).await
     }
 
     pub async fn recv(&mut self) -> anyhow::Result<Event> {
