@@ -258,6 +258,7 @@ enum SendBufferItem {
 struct SendBuffer {
     cache: std::collections::LinkedList<SendBufferItem>,
     chunk_size: usize,
+    pub rest: Vec<i16>,
     pub volume: f32,
 }
 
@@ -271,29 +272,84 @@ impl SendBuffer {
         Self {
             cache: std::collections::LinkedList::new(),
             chunk_size,
+            rest: Vec::new(),
             volume: 1.0,
         }
     }
 
     fn push_u8(&mut self, data: &[u8]) {
+        if self.rest.len() > 0 {
+            let needed = self.chunk_size * 2 - self.rest.len() * 2;
+            if data.len() >= needed {
+                let mut to_add = vec![0i16; needed / 2];
+                for i in 0..(needed / 2) {
+                    to_add[i] = i16::from_le_bytes([data[i * 2], data[i * 2 + 1]]);
+                }
+                self.rest.extend_from_slice(&to_add);
+                let mut v = std::mem::take(&mut self.rest);
+                v.iter_mut().for_each(|x| {
+                    *x = get_volume(*x, self.volume);
+                });
+
+                self.cache.push_back(SendBufferItem::Audio(v));
+
+                self.push_u8(&data[needed..]);
+            } else {
+                let mut to_add = vec![0i16; data.len() / 2];
+                for i in 0..(data.len() / 2) {
+                    to_add[i] = i16::from_le_bytes([data[i * 2], data[i * 2 + 1]]);
+                }
+                self.rest.extend_from_slice(&to_add);
+            }
+            return;
+        }
+
         for chunk in data.chunks(self.chunk_size * 2) {
-            let mut v = vec![0i16; self.chunk_size];
+            let mut v = vec![0i16; chunk.len() / 2];
 
             for i in 0..(chunk.len() / 2) {
-                let v_ = i16::from_le_bytes([chunk[i * 2], chunk[i * 2 + 1]]);
-                v[i] = get_volume(v_, self.volume);
+                v[i] = i16::from_le_bytes([chunk[i * 2], chunk[i * 2 + 1]]);
             }
-            self.cache.push_back(SendBufferItem::Audio(v));
+            if v.len() < self.chunk_size {
+                self.rest = v;
+            } else {
+                v.iter_mut().for_each(|x| {
+                    *x = get_volume(*x, self.volume);
+                });
+                self.cache.push_back(SendBufferItem::Audio(v));
+            }
         }
     }
 
     fn push_i16(&mut self, data: &[i16]) {
-        for chunk in data.chunks(self.chunk_size) {
-            let mut v = vec![0i16; self.chunk_size];
-            for i in 0..chunk.len() {
-                v[i] = get_volume(chunk[i], self.volume);
+        if self.rest.len() > 0 {
+            let needed = self.chunk_size - self.rest.len();
+            if data.len() >= needed {
+                self.rest.extend_from_slice(&data[0..needed]);
+                let mut v = std::mem::take(&mut self.rest);
+                v.iter_mut().for_each(|x| {
+                    *x = get_volume(*x, self.volume);
+                });
+
+                self.cache.push_back(SendBufferItem::Audio(v));
+
+                self.push_i16(&data[needed..]);
+            } else {
+                self.rest.extend_from_slice(data);
             }
-            self.cache.push_back(SendBufferItem::Audio(v));
+            return;
+        }
+
+        for chunk in data.chunks(self.chunk_size) {
+            if chunk.len() < self.chunk_size {
+                self.rest = chunk.to_vec();
+            } else {
+                let mut v = vec![0i16; chunk.len()];
+                for i in 0..chunk.len() {
+                    v[i] = get_volume(chunk[i], self.volume);
+                }
+                self.cache.push_back(SendBufferItem::Audio(v));
+            }
         }
     }
 
@@ -506,15 +562,6 @@ impl BoxAudioWorker {
         let afe_handle_ = afe_handle.clone();
         crate::log_heap();
 
-        // let mut conf = esp_idf_svc::hal::task::thread::ThreadSpawnConfiguration::default();
-        // conf.stack_alloc_caps = (esp_idf_svc::hal::task::thread::MallocCap::Spiram
-        //     | esp_idf_svc::hal::task::thread::MallocCap::Cap8bit)
-        //     .into();
-        // // conf.stack_size = 40 * 1024;
-        // let r = conf.set();
-        // if let Err(e) = r {
-        //     log::error!("Failed to set thread config: {:?}", e);
-        // }
         let _afe_r = std::thread::Builder::new().stack_size(8 * 1024).spawn(|| {
             let r = afe_worker(afe_handle_, tx, 600.0);
             if let Err(e) = r {

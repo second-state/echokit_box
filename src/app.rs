@@ -386,10 +386,11 @@ pub async fn main_work<'d>(
                 recv_audio_buffer.clear();
             }
             Event::ServerEvent(ServerEvent::HelloStart) => {
+                log::info!("Received hello start");
                 hello_wav.clear();
             }
             Event::ServerEvent(ServerEvent::HelloChunk { data }) => {
-                log::info!("Received hello chunk");
+                log::debug!("Received hello chunk");
                 if !init_hello {
                     hello_wav.extend_from_slice(&data);
                 }
