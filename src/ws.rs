@@ -88,6 +88,14 @@ impl Server {
         self.send(msg).await
     }
 
+    pub async fn send_client_audio_chunk_i16(&mut self, chunk: Vec<i16>) -> anyhow::Result<()> {
+        let audio_buffer_u8 =
+            unsafe { std::slice::from_raw_parts(chunk.as_ptr() as *const u8, chunk.len() * 2) };
+
+        self.send_client_audio_chunk(bytes::Bytes::from(audio_buffer_u8))
+            .await
+    }
+
     pub async fn recv(&mut self) -> anyhow::Result<Event> {
         let msg = self
             .ws

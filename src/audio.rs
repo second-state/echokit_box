@@ -149,6 +149,8 @@ fn afe_worker(afe_handle: Arc<AFE>, tx: MicTx, trigger_mean_value: f32) -> anyho
     crate::print_stack_high();
     let mut speech = false;
     let mut cache_buffer = Vec::with_capacity(16000);
+    let mut vol = VOL_NUM.load(std::sync::atomic::Ordering::Relaxed) as f32 / 100.0;
+    let mut trigger_mean_value_ = trigger_mean_value * vol;
     loop {
         let playing = PLAYING.load(std::sync::atomic::Ordering::Relaxed);
         let result = afe_handle.fetch();
@@ -163,6 +165,8 @@ fn afe_worker(afe_handle: Arc<AFE>, tx: MicTx, trigger_mean_value: f32) -> anyho
         if result.speech {
             if !speech {
                 log::info!("Speech started");
+                vol = VOL_NUM.load(std::sync::atomic::Ordering::Relaxed) as f32 / 100.0;
+                trigger_mean_value_ = trigger_mean_value * vol;
             }
             speech = true;
             log::debug!("Speech detected, sending {} bytes", result.data.len());
@@ -184,7 +188,7 @@ fn afe_worker(afe_handle: Arc<AFE>, tx: MicTx, trigger_mean_value: f32) -> anyho
                     .map(|x| x.abs() as f32 / len)
                     .sum::<f32>();
 
-                if mean > trigger_mean_value || !playing {
+                if mean > trigger_mean_value_ || !playing {
                     log::info!("Sending cached {} s, mean:{}", len / 16000.0, mean);
                     tx.blocking_send(crate::app::Event::MicInterrupt(cache_buffer))
                         .map_err(|_| anyhow::anyhow!("Failed to send data"))?;
@@ -194,7 +198,7 @@ fn afe_worker(afe_handle: Arc<AFE>, tx: MicTx, trigger_mean_value: f32) -> anyho
                         "Dropping cached {} s, mean:{} below trigger {}",
                         len / 16000.0,
                         mean,
-                        trigger_mean_value
+                        trigger_mean_value_
                     );
                     cache_buffer.clear();
                 }
@@ -386,6 +390,7 @@ impl SendBuffer {
 }
 
 static PLAYING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static VOL_NUM: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(50);
 
 fn audio_task_run(
     rx: &mut tokio::sync::mpsc::UnboundedReceiver<AudioEvent>,
@@ -407,7 +412,7 @@ fn audio_task_run(
     let mut allow_speech = false;
     let mut speech = false;
 
-    send_buffer.volume = 0.2;
+    send_buffer.volume = 0.5;
 
     loop {
         if let Ok(event) = rx.try_recv() {
@@ -442,6 +447,7 @@ fn audio_task_run(
                 }
                 AudioEvent::VolSet(vol) => {
                     send_buffer.volume = vol;
+                    VOL_NUM.store((vol * 100.0) as u8, std::sync::atomic::Ordering::Relaxed);
                 }
             }
         }
@@ -657,7 +663,7 @@ impl BoardsAudioWorker {
 
         let _afe_r = std::thread::Builder::new()
             .stack_size(8 * 1024)
-            .spawn(|| afe_worker(afe_handle_, tx, 300.0))?;
+            .spawn(|| afe_worker(afe_handle_, tx, 200.0))?;
 
         audio_task_run(&mut rx, &mut fn_read, &mut fn_write, &afe_handle)
     }

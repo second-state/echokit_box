@@ -15,10 +15,12 @@ pub enum Event {
     MicAudioChunk(Vec<i16>),
     MicAudioEnd,
     MicInterrupt(Vec<i16>),
+    MicInterruptWaitTimeout,
 }
 
 #[allow(dead_code)]
 impl Event {
+    pub const IDLE: &'static str = "idle";
     pub const GAIA: &'static str = "gaia";
     pub const NO: &'static str = "no";
     pub const YES: &'static str = "yes";
@@ -41,6 +43,7 @@ async fn select_evt(
     server: &mut Server,
     notify: &tokio::sync::Notify,
     wait_notify: bool,
+    timeout: std::time::Duration,
 ) -> Option<Event> {
     let s_fut = async {
         if wait_notify {
@@ -50,24 +53,38 @@ async fn select_evt(
             server.recv().await
         }
     };
+    let timeout_event = if timeout == INTERNAL_TIMEOUT {
+        Some(Event::MicInterruptWaitTimeout)
+    } else {
+        Some(Event::Event(Event::IDLE))
+    };
+
+    let timeout_f = tokio::time::sleep(timeout);
 
     tokio::select! {
+        _ = timeout_f => {
+            log::info!("Event select timeout");
+            timeout_event
+        }
         Some(evt) = evt_rx.recv() => {
             match &evt {
                 Event::Event(_) => {
-                    log::info!("Received event: {:?}", evt);
+                    log::info!("[Select] Received event: {:?}", evt);
                 },
                 Event::MicAudioEnd => {
-                    log::info!("Received MicAudioEnd");
+                    log::info!("[Select] Received MicAudioEnd");
                 },
                 Event::MicAudioChunk(data) => {
-                    log::debug!("Received MicAudioChunk with {} bytes", data.len());
+                    log::debug!("[Select] Received MicAudioChunk with {} bytes", data.len());
                 },
                 Event::ServerEvent(_) => {
-                    log::info!("Received ServerEvent: {:?}", evt);
+                    log::info!("[Select] Received ServerEvent: {:?}", evt);
                 },
                 Event::MicInterrupt(data) => {
-                    log::info!("Received MicInterrupt with {} samples", data.len());
+                    log::info!("[Select] Received MicInterrupt with {} samples", data.len());
+                },
+                Event::MicInterruptWaitTimeout => {
+                    log::info!("[Select] Received MicInterruptWaitTimeout");
                 }
             }
             Some(evt)
@@ -75,13 +92,13 @@ async fn select_evt(
         Ok(msg) = s_fut => {
             match msg {
                 Event::ServerEvent(ServerEvent::AudioChunk { .. })=>{
-                    log::debug!("Received AudioChunk");
+                    log::debug!("[Select] Received AudioChunk");
                 }
                 Event::ServerEvent(ServerEvent::HelloChunk { .. })=>{
-                    log::debug!("Received HelloChunk");
+                    log::debug!("[Select] Received HelloChunk");
                 }
                 _=> {
-                    log::debug!("Received message: {:?}", msg);
+                    log::debug!("[Select] Received message: {:?}", msg);
                 }
             }
             Some(msg)
@@ -131,6 +148,8 @@ impl DownloadMetrics {
 }
 
 const SPEED_LIMIT: f64 = 1.5;
+const INTERNAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
+const NORMAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 pub async fn main_work<'d>(
     mut server: Server,
@@ -170,8 +189,10 @@ pub async fn main_work<'d>(
     let mut wait_notify = false;
     let mut init_hello = false;
     let mut allow_interrupt = false;
+    let mut timeout = NORMAL_TIMEOUT;
 
-    while let Some(evt) = select_evt(&mut evt_rx, &mut server, &notify, wait_notify).await {
+    while let Some(evt) = select_evt(&mut evt_rx, &mut server, &notify, wait_notify, timeout).await
+    {
         match evt {
             Event::Event(Event::GAIA | Event::K0) => {
                 log::info!("Received event: gaia");
@@ -235,6 +256,14 @@ pub async fn main_work<'d>(
                 gui.display_flush().unwrap();
             }
             Event::Event(Event::YES | Event::K1) => {}
+            Event::Event(Event::IDLE) => {
+                if state == State::Listening {
+                    state = State::Idle;
+                    gui.state = "Idle".to_string();
+                    gui.display_flush().unwrap();
+                    server.close().await?;
+                }
+            }
             Event::Event(Event::NOTIFY) => {
                 log::info!("Received notify event");
                 wait_notify = false;
@@ -259,15 +288,7 @@ pub async fn main_work<'d>(
                         log::info!("Submitted StartChat command");
                     }
                     start_submit = true;
-                    let audio_buffer_u8 = unsafe {
-                        std::slice::from_raw_parts(
-                            audio_buffer.as_ptr() as *const u8,
-                            audio_buffer.len() * 2,
-                        )
-                    };
-                    server
-                        .send_client_audio_chunk(bytes::Bytes::from(audio_buffer_u8))
-                        .await?;
+                    server.send_client_audio_chunk_i16(audio_buffer).await?;
                     audio_buffer = Vec::with_capacity(8192);
                 }
             }
@@ -279,15 +300,7 @@ pub async fn main_work<'d>(
                 }
                 if submit_audio > 0.5 {
                     if !audio_buffer.is_empty() {
-                        let audio_buffer_u8 = unsafe {
-                            std::slice::from_raw_parts(
-                                audio_buffer.as_ptr() as *const u8,
-                                audio_buffer.len() * 2,
-                            )
-                        };
-                        server
-                            .send_client_audio_chunk(bytes::Bytes::from(audio_buffer_u8))
-                            .await?;
+                        server.send_client_audio_chunk_i16(audio_buffer).await?;
                         audio_buffer = Vec::with_capacity(8192);
                     }
                     server
@@ -321,10 +334,11 @@ pub async fn main_work<'d>(
                     continue;
                 }
 
-                if (interrupt_data.len() as f32 / 16000.0) < 1.2 {
+                let interrupt_audio_sec = interrupt_data.len() as f32 / 16000.0;
+                if interrupt_audio_sec < 1.2 {
                     log::info!(
                         "Interrupt audio too short ({} s), ignoring",
-                        interrupt_data.len() as f32 / 16000.0
+                        interrupt_audio_sec
                     );
                     continue;
                 }
@@ -340,11 +354,39 @@ pub async fn main_work<'d>(
                 server.reconnect_with_retry(3).await?;
 
                 start_submit = false;
-                submit_audio = 0.0;
-                audio_buffer = Vec::with_capacity(8192);
+                submit_audio = interrupt_audio_sec;
+                audio_buffer = interrupt_data;
 
                 state = State::Listening;
                 gui.state = "Listening...".to_string();
+                gui.display_flush().unwrap();
+                timeout = INTERNAL_TIMEOUT;
+            }
+            Event::MicInterruptWaitTimeout => {
+                log::info!("Received MicInterruptWaitTimeout");
+                timeout = NORMAL_TIMEOUT;
+                if start_submit {
+                    log::info!("Already started submit, ignoring timeout");
+                    continue;
+                }
+                server
+                    .send_client_command(protocol::ClientCommand::StartChat)
+                    .await?;
+                log::info!("Submitted StartChat command due to interrupt timeout");
+
+                server.send_client_audio_chunk_i16(audio_buffer).await?;
+                server
+                    .send_client_command(protocol::ClientCommand::Submit)
+                    .await?;
+                log::info!("Submitted audio");
+                need_compute = metrics.is_timeout();
+
+                audio_buffer = Vec::with_capacity(8192);
+                submit_audio = 0.0;
+                start_submit = false;
+                wait_notify = false;
+                state = State::Waiting;
+                gui.state = "Waiting...".to_string();
                 gui.display_flush().unwrap();
             }
             Event::ServerEvent(ServerEvent::ASR { text }) => {
