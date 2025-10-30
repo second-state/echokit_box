@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
-use tokio_websockets::Message;
 
 use crate::{
-    audio::{self, AudioEvent},
+    audio::{self, AudioEvent, MicRx},
     protocol::{self, ServerEvent},
     ws::Server,
 };
@@ -15,6 +14,7 @@ pub enum Event {
     ServerEvent(ServerEvent),
     MicAudioChunk(Vec<i16>),
     MicAudioEnd,
+    MicInterrupt(Vec<i16>),
 }
 
 #[allow(dead_code)]
@@ -50,21 +50,25 @@ async fn select_evt(
             server.recv().await
         }
     };
+
     tokio::select! {
         Some(evt) = evt_rx.recv() => {
             match &evt {
-                Event::Event(_)=>{
+                Event::Event(_) => {
                     log::info!("Received event: {:?}", evt);
                 },
-                Event::MicAudioEnd=>{
+                Event::MicAudioEnd => {
                     log::info!("Received MicAudioEnd");
                 },
-                Event::MicAudioChunk(data)=>{
+                Event::MicAudioChunk(data) => {
                     log::debug!("Received MicAudioChunk with {} bytes", data.len());
                 },
-                Event::ServerEvent(_)=>{
+                Event::ServerEvent(_) => {
                     log::info!("Received ServerEvent: {:?}", evt);
                 },
+                Event::MicInterrupt(data) => {
+                    log::info!("Received MicInterrupt with {} samples", data.len());
+                }
             }
             Some(evt)
         }
@@ -126,14 +130,12 @@ impl DownloadMetrics {
     }
 }
 
-const SPEED_LIMIT: f64 = 1.0;
+const SPEED_LIMIT: f64 = 1.5;
 
-// TODO: 按键打断
-// TODO: 超时不监听
 pub async fn main_work<'d>(
     mut server: Server,
     player_tx: audio::PlayerTx,
-    mut evt_rx: mpsc::Receiver<Event>,
+    mut evt_rx: MicRx,
     backgroud_buffer: Option<&'d [u8]>,
 ) -> anyhow::Result<()> {
     #[derive(PartialEq, Eq)]
@@ -167,6 +169,7 @@ pub async fn main_work<'d>(
     let notify: Arc<tokio::sync::Notify> = Arc::new(tokio::sync::Notify::new());
     let mut wait_notify = false;
     let mut init_hello = false;
+    let mut allow_interrupt = false;
 
     while let Some(evt) = select_evt(&mut evt_rx, &mut server, &notify, wait_notify).await {
         match evt {
@@ -181,7 +184,7 @@ pub async fn main_work<'d>(
                     gui.display_flush().unwrap();
                     server.close().await?;
                 } else {
-                    let hello_notify = notify.clone();
+                    let hello_notify = Arc::new(tokio::sync::Notify::new());
                     player_tx
                         .send(AudioEvent::Hello(hello_notify.clone()))
                         .map_err(|e| anyhow::anyhow!("Error sending hello: {e:?}"))?;
@@ -190,6 +193,10 @@ pub async fn main_work<'d>(
 
                     server.reconnect_with_retry(3).await?;
 
+                    start_submit = false;
+                    submit_audio = 0.0;
+                    audio_buffer = Vec::with_capacity(8192);
+
                     log::info!("Hello response received");
 
                     state = State::Listening;
@@ -197,7 +204,12 @@ pub async fn main_work<'d>(
                     gui.display_flush().unwrap();
                 }
             }
-            Event::Event(Event::K0_) => {}
+            Event::Event(Event::K0_) => {
+                allow_interrupt = !allow_interrupt;
+                log::info!("Set allow_interrupt to {}", allow_interrupt);
+                gui.state = format!("Interrupt: {}", allow_interrupt);
+                gui.display_flush().unwrap();
+            }
             Event::Event(Event::VOL_UP) => {
                 vol += 0.1;
                 if vol > 1.0 {
@@ -283,12 +295,56 @@ pub async fn main_work<'d>(
                         .await?;
                     log::info!("Submitted audio");
                     need_compute = metrics.is_timeout();
+
+                    submit_audio = 0.0;
+                    start_submit = false;
+                    wait_notify = false;
+                    state = State::Waiting;
+                    gui.state = "Waiting...".to_string();
+                    gui.display_flush().unwrap();
                 }
-                submit_audio = 0.0;
+            }
+            Event::MicInterrupt(interrupt_data) => {
+                log::info!(
+                    "Received MicInterrupt with {} samples",
+                    interrupt_data.len()
+                );
+                if !(state == State::Listening || state == State::Speaking) {
+                    log::debug!(
+                        "Received MicInterrupt while no Listening or Speaking state, ignoring"
+                    );
+                    continue;
+                }
+
+                if !allow_interrupt {
+                    log::info!("Interrupts are disabled, ignoring MicInterrupt");
+                    continue;
+                }
+
+                if (interrupt_data.len() as f32 / 16000.0) < 1.2 {
+                    log::info!(
+                        "Interrupt audio too short ({} s), ignoring",
+                        interrupt_data.len() as f32 / 16000.0
+                    );
+                    continue;
+                }
+
+                let int_notify = Arc::new(tokio::sync::Notify::new());
+                player_tx
+                    .send(AudioEvent::Interrupt(int_notify.clone()))
+                    .map_err(|e| anyhow::anyhow!("Error sending interrupt: {e:?}"))?;
+                log::info!("Waiting for interrupt response");
+                let _ = int_notify.notified().await;
+                log::info!("Interrupt response received");
+
+                server.reconnect_with_retry(3).await?;
+
                 start_submit = false;
-                wait_notify = false;
-                state = State::Waiting;
-                gui.state = "Waiting...".to_string();
+                submit_audio = 0.0;
+                audio_buffer = Vec::with_capacity(8192);
+
+                state = State::Listening;
+                gui.state = "Listening...".to_string();
                 gui.display_flush().unwrap();
             }
             Event::ServerEvent(ServerEvent::ASR { text }) => {

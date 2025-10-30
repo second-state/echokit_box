@@ -149,6 +149,7 @@ fn afe_worker(afe_handle: Arc<AFE>, tx: MicTx, trigger_mean_value: f32) -> anyho
     let mut speech = false;
     let mut cache_buffer = Vec::with_capacity(16000);
     loop {
+        let playing = PLAYING.load(std::sync::atomic::Ordering::Relaxed);
         let result = afe_handle.fetch();
         if let Err(_e) = &result {
             continue;
@@ -164,7 +165,7 @@ fn afe_worker(afe_handle: Arc<AFE>, tx: MicTx, trigger_mean_value: f32) -> anyho
             }
             speech = true;
             log::debug!("Speech detected, sending {} bytes", result.data.len());
-            if PLAYING.load(std::sync::atomic::Ordering::Relaxed) {
+            if playing || cache_buffer.len() > 0 {
                 cache_buffer.extend_from_slice(&result.data);
             } else {
                 tx.blocking_send(crate::app::Event::MicAudioChunk(result.data))
@@ -182,17 +183,15 @@ fn afe_worker(afe_handle: Arc<AFE>, tx: MicTx, trigger_mean_value: f32) -> anyho
                     .map(|x| x.abs() as f32 / len)
                     .sum::<f32>();
 
-                if mean > trigger_mean_value {
-                    log::info!("Sending cached {} bytes, mean:{}", cache_buffer.len(), mean);
-                    tx.blocking_send(crate::app::Event::MicAudioChunk(cache_buffer))
+                if mean > trigger_mean_value || !playing {
+                    log::info!("Sending cached {} s, mean:{}", len / 16000.0, mean);
+                    tx.blocking_send(crate::app::Event::MicInterrupt(cache_buffer))
                         .map_err(|_| anyhow::anyhow!("Failed to send data"))?;
                     cache_buffer = Vec::with_capacity(16000);
-                    tx.blocking_send(crate::app::Event::MicAudioEnd)
-                        .map_err(|_| anyhow::anyhow!("Failed to send data"))?;
                 } else {
                     log::info!(
-                        "Dropping cached {} bytes, mean:{} below trigger {}",
-                        cache_buffer.len(),
+                        "Dropping cached {} s, mean:{} below trigger {}",
+                        len / 16000.0,
                         mean,
                         trigger_mean_value
                     );
@@ -242,11 +241,11 @@ pub fn player_welcome(
 pub enum AudioEvent {
     Hello(Arc<tokio::sync::Notify>),
     SetHello(Vec<u8>),
+    Interrupt(Arc<tokio::sync::Notify>),
     StartSpeech,
     SpeechChunk(Vec<u8>),
     SpeechChunki16(Vec<i16>),
     EndSpeech(Arc<tokio::sync::Notify>),
-    StopSpeech,
     VolSet(f32),
 }
 
@@ -412,6 +411,12 @@ fn audio_task_run(
     loop {
         if let Ok(event) = rx.try_recv() {
             match event {
+                AudioEvent::Interrupt(notify) => {
+                    log::info!("Received Interrupt event");
+                    allow_speech = false;
+                    send_buffer.clear();
+                    notify.notify_one();
+                }
                 AudioEvent::Hello(notify) => {
                     log::info!("Received Hello event");
                     allow_speech = true;
@@ -436,9 +441,6 @@ fn audio_task_run(
                 }
                 AudioEvent::VolSet(vol) => {
                     send_buffer.volume = vol;
-                }
-                AudioEvent::StopSpeech => {
-                    allow_speech = false;
                 }
             }
         }
@@ -654,7 +656,7 @@ impl BoardsAudioWorker {
 
         let _afe_r = std::thread::Builder::new()
             .stack_size(8 * 1024)
-            .spawn(|| afe_worker(afe_handle_, tx, 3000.0))?;
+            .spawn(|| afe_worker(afe_handle_, tx, 300.0))?;
 
         audio_task_run(&mut rx, &mut fn_read, &mut fn_write, &afe_handle)
     }
