@@ -30,14 +30,6 @@ fn main() -> anyhow::Result<()> {
     let partition = esp_idf_svc::nvs::EspDefaultNvsPartition::take()?;
     let nvs = esp_idf_svc::nvs::EspDefaultNvs::new(partition, "setting", true)?;
 
-    let mut conf = esp_idf_svc::hal::task::thread::ThreadSpawnConfiguration::default();
-    conf.stack_alloc_caps = (esp_idf_svc::hal::task::thread::MallocCap::Spiram).into();
-    conf.inherit = true;
-    let r = conf.set();
-    if let Err(e) = r {
-        log::error!("Failed to set thread stack alloc caps: {:?}", e);
-    }
-
     log_heap();
 
     crate::hal::audio_init();
@@ -250,9 +242,21 @@ fn main() -> anyhow::Result<()> {
             in_mclk: None,
         };
 
+        // let mut conf =
+        //     esp_idf_svc::hal::task::thread::ThreadSpawnConfiguration::get().unwrap_or_default();
+        // conf.pin_to_core = Some(esp_idf_svc::hal::cpu::Core::Core1);
+        // let r = conf.set();
+        // if let Err(e) = r {
+        //     log::error!("Failed to set thread stack alloc caps: {:?}", e);
+        // }
+
         std::thread::Builder::new()
             .stack_size(AUDIO_STACK_SIZE)
             .spawn(move || {
+                log::info!(
+                    "Starting audio worker thread in core {:?}",
+                    esp_idf_svc::hal::cpu::core()
+                );
                 let r = worker.run(rx1, evt_tx_);
                 if let Err(e) = r {
                     log::error!("Audio worker error: {:?}", e);

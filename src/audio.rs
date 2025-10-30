@@ -28,7 +28,8 @@ unsafe fn afe_init() -> (
     afe_config.agc_init = true;
     afe_config.afe_linear_gain = 2.0;
     afe_config.aec_init = true;
-    afe_config.aec_mode = esp_sr::aec_mode_t_AEC_MODE_SR_HIGH_PERF;
+    afe_config.aec_mode = esp_sr::aec_mode_t_AEC_MODE_VOIP_HIGH_PERF;
+    afe_config.aec_filter_length = 5;
     afe_config.ns_init = true;
     afe_config.wakenet_init = false;
     afe_config.memory_alloc_mode = esp_sr::afe_memory_alloc_mode_t_AFE_MEMORY_ALLOC_MORE_PSRAM;
