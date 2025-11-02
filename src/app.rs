@@ -181,7 +181,7 @@ pub async fn main_work<'d>(
     let mut metrics = DownloadMetrics::new();
     let mut need_compute = true;
     let mut speed = 1.5;
-    let mut vol = 0.5;
+    let mut vol = 3u8;
 
     let mut hello_wav = Vec::with_capacity(1024 * 30);
 
@@ -232,27 +232,27 @@ pub async fn main_work<'d>(
                 gui.display_flush().unwrap();
             }
             Event::Event(Event::VOL_UP) => {
-                vol += 0.1;
-                if vol > 1.0 {
-                    vol = 1.0;
+                vol += 1;
+                if vol > 5 {
+                    vol = 5;
                 }
                 player_tx
                     .send(AudioEvent::VolSet(vol))
                     .map_err(|e| anyhow::anyhow!("Error sending volume set: {e:?}"))?;
-                log::info!("Volume set to {:.1}", vol);
-                gui.state = format!("Volume: {:.1}", vol);
+                log::info!("Volume set to {}", vol);
+                gui.state = format!("Volume: {}", vol);
                 gui.display_flush().unwrap();
             }
             Event::Event(Event::VOL_DOWN) => {
-                vol -= 0.1;
-                if vol < 0.1 {
-                    vol = 0.1;
+                vol -= 1;
+                if vol < 1 {
+                    vol = 1;
                 }
                 player_tx
                     .send(AudioEvent::VolSet(vol))
                     .map_err(|e| anyhow::anyhow!("Error sending volume set: {e:?}"))?;
-                log::info!("Volume set to {:.1}", vol);
-                gui.state = format!("Volume: {:.1}", vol);
+                log::info!("Volume set to {}", vol);
+                gui.state = format!("Volume: {}", vol);
                 gui.display_flush().unwrap();
             }
             Event::Event(Event::YES | Event::K1) => {}

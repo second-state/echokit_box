@@ -149,8 +149,10 @@ fn afe_worker(afe_handle: Arc<AFE>, tx: MicTx, trigger_mean_value: f32) -> anyho
     crate::print_stack_high();
     let mut speech = false;
     let mut cache_buffer = Vec::with_capacity(16000);
-    let mut vol = VOL_NUM.load(std::sync::atomic::Ordering::Relaxed) as f32 / 100.0;
-    let mut trigger_mean_value_ = trigger_mean_value * vol;
+    let mut vol = VOL_NUM.load(std::sync::atomic::Ordering::Relaxed) as i16;
+    let mut trigger_mean_value_ =
+        trigger_mean_value * (get_volume(100, vol) as f32 / 100.0).max(0.3);
+
     loop {
         let playing = PLAYING.load(std::sync::atomic::Ordering::Relaxed);
         let result = afe_handle.fetch();
@@ -165,8 +167,9 @@ fn afe_worker(afe_handle: Arc<AFE>, tx: MicTx, trigger_mean_value: f32) -> anyho
         if result.speech {
             if !speech {
                 log::info!("Speech started");
-                vol = VOL_NUM.load(std::sync::atomic::Ordering::Relaxed) as f32 / 100.0;
-                trigger_mean_value_ = trigger_mean_value * vol;
+                vol = VOL_NUM.load(std::sync::atomic::Ordering::Relaxed) as i16;
+                trigger_mean_value_ =
+                    trigger_mean_value * (get_volume(100, vol) as f32 / 100.0).max(0.3);
             }
             speech = true;
             log::debug!("Speech detected, sending {} bytes", result.data.len());
@@ -251,7 +254,7 @@ pub enum AudioEvent {
     SpeechChunk(Vec<u8>),
     SpeechChunki16(Vec<i16>),
     EndSpeech(Arc<tokio::sync::Notify>),
-    VolSet(f32),
+    VolSet(u8),
 }
 
 enum SendBufferItem {
@@ -263,12 +266,19 @@ struct SendBuffer {
     cache: std::collections::LinkedList<SendBufferItem>,
     chunk_size: usize,
     pub rest: Vec<i16>,
-    pub volume: f32,
+    pub volume: i16,
 }
 
 #[inline]
-fn get_volume(value: i16, volume: f32) -> i16 {
-    ((value as f32 / i16::MAX as f32 * volume) * (i16::MAX as f32)) as i16
+fn get_volume(value: i16, volume: i16) -> i16 {
+    match volume {
+        0 => 0,
+        1 => value / 16,
+        2 => value / 8,
+        3 => value / 4,
+        4 => value / 2,
+        _ => value,
+    }
 }
 
 impl SendBuffer {
@@ -277,7 +287,7 @@ impl SendBuffer {
             cache: std::collections::LinkedList::new(),
             chunk_size,
             rest: Vec::new(),
-            volume: 1.0,
+            volume: 3,
         }
     }
 
@@ -390,7 +400,7 @@ impl SendBuffer {
 }
 
 static PLAYING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-static VOL_NUM: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(50);
+static VOL_NUM: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(3);
 
 fn audio_task_run(
     rx: &mut tokio::sync::mpsc::UnboundedReceiver<AudioEvent>,
@@ -412,7 +422,7 @@ fn audio_task_run(
     let mut allow_speech = false;
     let mut speech = false;
 
-    send_buffer.volume = 0.5;
+    send_buffer.volume = 3;
 
     loop {
         if let Ok(event) = rx.try_recv() {
@@ -446,8 +456,8 @@ fn audio_task_run(
                     send_buffer.push_back_end_speech(sender);
                 }
                 AudioEvent::VolSet(vol) => {
-                    send_buffer.volume = vol;
-                    VOL_NUM.store((vol * 100.0) as u8, std::sync::atomic::Ordering::Relaxed);
+                    send_buffer.volume = vol as i16;
+                    VOL_NUM.store(vol, std::sync::atomic::Ordering::Relaxed);
                 }
             }
         }
@@ -662,7 +672,7 @@ impl BoardsAudioWorker {
         let afe_handle_ = afe_handle.clone();
 
         #[cfg(feature = "cube2")]
-        const TRIGGER_MEAN_VALUE: f32 = 400.0;
+        const TRIGGER_MEAN_VALUE: f32 = 500.0;
         #[cfg(not(feature = "cube2"))]
         const TRIGGER_MEAN_VALUE: f32 = 300.0;
 
