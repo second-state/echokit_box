@@ -13,7 +13,10 @@ use embedded_graphics::{
     },
 };
 use embedded_text::TextBox;
-use esp_idf_svc::sys::EspError;
+use esp_idf_svc::{
+    hal::{self, gpio::Pin, ledc::LedcDriver},
+    sys::{ledc_timer_config_t, EspError},
+};
 use u8g2_fonts::U8g2TextStyle;
 
 pub type ColorFormat = Rgb565;
@@ -35,15 +38,20 @@ fn init_spi() -> Result<(), EspError> {
     use esp_idf_svc::sys::*;
     const GPIO_NUM_NC: i32 = -1;
 
-    #[cfg(not(feature = "cube"))]
+    #[cfg(all(not(feature = "cube"), not(feature = "cube2")))]
     const DISPLAY_MOSI_PIN: i32 = 47;
-    #[cfg(not(feature = "cube"))]
+    #[cfg(all(not(feature = "cube"), not(feature = "cube2")))]
     const DISPLAY_CLK_PIN: i32 = 21;
 
     #[cfg(feature = "cube")]
     const DISPLAY_MOSI_PIN: i32 = 41;
     #[cfg(feature = "cube")]
     const DISPLAY_CLK_PIN: i32 = 42;
+
+    #[cfg(feature = "cube2")]
+    const DISPLAY_MOSI_PIN: i32 = 10;
+    #[cfg(feature = "cube2")]
+    const DISPLAY_CLK_PIN: i32 = 9;
 
     let mut buscfg = spi_bus_config_t::default();
     buscfg.__bindgen_anon_1.mosi_io_num = DISPLAY_MOSI_PIN;
@@ -66,11 +74,19 @@ static mut ESP_LCD_PANEL_HANDLE: esp_idf_svc::sys::esp_lcd_panel_handle_t = std:
 #[cfg(feature = "boards")]
 fn init_lcd() -> Result<(), EspError> {
     use esp_idf_svc::sys::*;
-    #[cfg(not(feature = "cube"))]
+    #[cfg(all(not(feature = "cube"), not(feature = "cube2")))]
     const DISPLAY_CS_PIN: i32 = 41;
     #[cfg(feature = "cube")]
     const DISPLAY_CS_PIN: i32 = 21;
+    #[cfg(feature = "cube2")]
+    const DISPLAY_CS_PIN: i32 = 14;
+
+    #[cfg(not(feature = "cube2"))]
     const DISPLAY_DC_PIN: i32 = 40;
+
+    #[cfg(feature = "cube2")]
+    const DISPLAY_DC_PIN: i32 = 8;
+
     ::log::info!("Install panel IO");
     let mut panel_io: esp_lcd_panel_io_handle_t = std::ptr::null_mut();
     let mut io_config = esp_lcd_panel_io_spi_config_t::default();
@@ -86,7 +102,12 @@ fn init_lcd() -> Result<(), EspError> {
     })?;
 
     ::log::info!("Install LCD driver");
+    #[cfg(not(feature = "cube2"))]
     const DISPLAY_RST_PIN: i32 = 45;
+
+    #[cfg(feature = "cube2")]
+    const DISPLAY_RST_PIN: i32 = 18;
+
     let mut panel_config = esp_lcd_panel_dev_config_t::default();
     let mut panel: esp_lcd_panel_handle_t = std::ptr::null_mut();
 
@@ -142,6 +163,33 @@ pub fn lcd_init() -> Result<(), EspError> {
         let config: hal_driver::lcd_cfg_t = std::mem::zeroed();
         hal_driver::lcd_init(config);
     }
+    Ok(())
+}
+
+#[allow(unused)]
+pub fn backlight_init(bl_pin: hal::gpio::AnyIOPin) -> anyhow::Result<LedcDriver<'static>> {
+    let config = hal::ledc::config::TimerConfig::new()
+        .resolution(hal::ledc::Resolution::Bits13)
+        .frequency(hal::units::Hertz(5000));
+    let time = unsafe { hal::ledc::TIMER0::new() };
+    let timer_driver = hal::ledc::LedcTimerDriver::new(time, &config)?;
+
+    let ledc_driver =
+        hal::ledc::LedcDriver::new(unsafe { hal::ledc::CHANNEL0::new() }, timer_driver, bl_pin)?;
+
+    Ok(ledc_driver)
+}
+
+const LEDC_MAX_DUTY: u32 = (1 << 13) - 1;
+#[allow(unused)]
+pub fn set_backlight<'d>(
+    ledc_driver: &mut hal::ledc::LedcDriver<'d>,
+    light: u8,
+) -> anyhow::Result<()> {
+    let light = 100.min(light) as u32;
+    let duty = LEDC_MAX_DUTY - (81 * (100 - light));
+    let duty = if light == 0 { 0 } else { duty };
+    ledc_driver.set_duty(duty)?;
     Ok(())
 }
 

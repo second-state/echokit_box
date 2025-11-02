@@ -185,7 +185,7 @@ fn afe_worker(afe_handle: Arc<AFE>, tx: MicTx, trigger_mean_value: f32) -> anyho
                 let len = cache_buffer.len() as f32;
                 let mean = cache_buffer
                     .iter()
-                    .map(|x| x.abs() as f32 / len)
+                    .map(|x| (*x as f32).abs() / len)
                     .sum::<f32>();
 
                 if mean > trigger_mean_value_ || !playing {
@@ -661,9 +661,14 @@ impl BoardsAudioWorker {
         let afe_handle = Arc::new(AFE::new());
         let afe_handle_ = afe_handle.clone();
 
+        #[cfg(feature = "cube2")]
+        const TRIGGER_MEAN_VALUE: f32 = 400.0;
+        #[cfg(not(feature = "cube2"))]
+        const TRIGGER_MEAN_VALUE: f32 = 300.0;
+
         let _afe_r = std::thread::Builder::new()
             .stack_size(8 * 1024)
-            .spawn(|| afe_worker(afe_handle_, tx, 200.0))?;
+            .spawn(|| afe_worker(afe_handle_, tx, TRIGGER_MEAN_VALUE))?;
 
         audio_task_run(&mut rx, &mut fn_read, &mut fn_write, &afe_handle)
     }
