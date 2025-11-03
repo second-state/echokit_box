@@ -180,6 +180,7 @@ pub async fn main_work<'d>(
 
     let mut metrics = DownloadMetrics::new();
     let mut need_compute = true;
+    let mut start_audio = false;
     let mut speed = 1.5;
     let mut vol = 3u8;
 
@@ -195,9 +196,7 @@ pub async fn main_work<'d>(
     {
         match evt {
             Event::Event(Event::GAIA | Event::K0) => {
-                log::info!("Received event: gaia");
-                // gui.state = "gaia".to_string();
-                // gui.display_flush().unwrap();
+                log::info!("Received event: k0");
 
                 if state == State::Listening {
                     state = State::Idle;
@@ -278,7 +277,7 @@ pub async fn main_work<'d>(
                 }
                 submit_audio += data.len() as f32 / 16000.0;
                 audio_buffer.extend_from_slice(&data);
-                // 0.25秒提交一次
+
                 if audio_buffer.len() >= 8192 && submit_audio > 0.5 {
                     if !start_submit {
                         log::info!("Start submitting audio");
@@ -402,9 +401,7 @@ pub async fn main_work<'d>(
                 gui.display_flush().unwrap();
             }
             Event::ServerEvent(ServerEvent::StartAudio { text }) => {
-                if need_compute {
-                    metrics.reset();
-                }
+                start_audio = true;
                 if state != State::Speaking {
                     log::debug!("Received StartAudio while not in speaking state");
                     continue;
@@ -425,6 +422,10 @@ pub async fn main_work<'d>(
                 }
 
                 if need_compute {
+                    if start_audio {
+                        metrics.reset();
+                        start_audio = false;
+                    }
                     metrics.add_data(data.len());
                 }
 
@@ -448,6 +449,8 @@ pub async fn main_work<'d>(
                     log::debug!("Received EndAudio while not in speaking state");
                     continue;
                 }
+
+                start_audio = false;
 
                 if recv_audio_buffer.len() > 0 {
                     if let Err(e) = player_tx.send(AudioEvent::SpeechChunki16(recv_audio_buffer)) {
