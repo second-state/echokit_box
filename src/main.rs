@@ -37,7 +37,7 @@ fn main() -> anyhow::Result<()> {
     #[cfg(feature = "cube2")]
     let _backlight = {
         let mut backlight = ui::backlight_init(peripherals.pins.gpio13.into()).unwrap();
-        ui::set_backlight(&mut backlight, 50).unwrap();
+        ui::set_backlight(&mut backlight, 70).unwrap();
         backlight
     };
 
