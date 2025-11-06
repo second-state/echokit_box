@@ -407,10 +407,34 @@ fn audio_task_run(
     rx: &mut tokio::sync::mpsc::UnboundedReceiver<AudioEvent>,
     fn_read: &mut dyn FnMut(&mut [i16]) -> Result<usize, esp_idf_svc::sys::EspError>,
     fn_write: &mut dyn FnMut(&[i16]) -> Result<usize, esp_idf_svc::sys::EspError>,
-    afe_handle: &AFE,
+    afe_handle: Arc<AFE>,
 ) -> anyhow::Result<()> {
+    let mut conf =
+        esp_idf_svc::hal::task::thread::ThreadSpawnConfiguration::get().unwrap_or_default();
+    conf.pin_to_core = Some(esp_idf_svc::hal::cpu::Core::Core1);
+    let r = conf.set();
+    if let Err(e) = r {
+        log::error!("Failed to set thread stack alloc caps: {:?}", e);
+    }
+
+    let (chunk_tx, chunk_rx) = std::sync::mpsc::sync_channel::<Vec<i16>>(64);
+
     let feed_chunksize = afe_handle.feed_chunksize;
     log::info!("feed_chunksize: {}", feed_chunksize);
+
+    std::thread::Builder::new()
+        .name("afe_feed".to_string())
+        .stack_size(8 * 1024)
+        .spawn(move || {
+            log::info!(
+                "AFE feed thread started, on core {:?}",
+                esp_idf_svc::hal::cpu::core()
+            );
+            while let Ok(chunk) = chunk_rx.recv() {
+                afe_handle.feed_i16(&chunk);
+            }
+            log::warn!("I2S AFE feed thread exited");
+        })?;
 
     let mut read_buffer = vec![0i16; feed_chunksize];
     let mut send_buffer = SendBuffer::new(feed_chunksize);
@@ -504,7 +528,7 @@ fn audio_task_run(
                 }
             }
 
-            afe_handle.feed_i16(&samples_with_ref);
+            chunk_tx.send(samples_with_ref).unwrap();
         }
         ref_data_ = play_data_;
     }
@@ -589,7 +613,7 @@ impl BoxAudioWorker {
             }
         })?;
 
-        audio_task_run(&mut rx, &mut fn_read, &mut fn_write, &afe_handle)
+        audio_task_run(&mut rx, &mut fn_read, &mut fn_write, afe_handle)
     }
 }
 
@@ -681,7 +705,7 @@ impl BoardsAudioWorker {
             .stack_size(8 * 1024)
             .spawn(|| afe_worker(afe_handle_, tx, TRIGGER_MEAN_VALUE))?;
 
-        audio_task_run(&mut rx, &mut fn_read, &mut fn_write, &afe_handle)
+        audio_task_run(&mut rx, &mut fn_read, &mut fn_write, afe_handle)
     }
 }
 
