@@ -23,6 +23,10 @@ jobs:
         action:
           - command: build
             args: --release
+          - command: build
+            args: --features cube2 --release
+          - command: build
+            args: --no-default-features --features box --release
           - command: fmt
             args: --all -- --check --color always
           # - command: clippy

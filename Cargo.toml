@@ -31,11 +31,7 @@ cube2 = ["boards"]
 log = "0.4"
 anyhow = "1.0"
 
-esp-idf-svc = { version = "0.51.0", features = [
-    "critical-section",
-    "embassy-time-driver",
-    "embassy-sync",
-] }
+esp-idf-svc = "0.51.0"
 # wav_io = "0.1.15"
 
 rand = "0.8.5"
