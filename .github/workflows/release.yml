@@ -33,6 +33,9 @@ jobs:
       - name: Enable caching
         uses: Swatinem/rust-cache@v2
 
+      - name: Install espflash
+        run: cargo install espflash
+
       - name: Package
         env:
           SAVE_IMAGE: "true"
