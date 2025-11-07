@@ -6,6 +6,10 @@ on:
       - main
     paths-ignore:
       - "**/README.md"
+      - ".github/workflows/**"
+      - "setup/**"
+      - "workshops/**"
+      - "*.sh"
   pull_request:
   workflow_dispatch:
 
