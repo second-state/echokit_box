@@ -51,4 +51,6 @@ fi
 
 zip -r package package
 
-rm -rf package
+if [ "$SAVE_IMAGE" != "true" ]; then
+    rm -rf package
+fi

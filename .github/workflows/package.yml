@@ -1,0 +1,46 @@
+name: Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_name:
+        description: "release page name"
+        required: true
+      target:
+        description: "build target (boards, cube2, box)"
+        required: true
+
+env:
+  CARGO_TERM_COLOR: always
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  build-release:
+    name: Build Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      - name: Setup Rust
+        uses: esp-rs/xtensa-toolchain@v1.5
+        with:
+          default: true
+          buildtargets: esp32s3
+          ldproxy: true
+
+      - name: Enable caching
+        uses: Swatinem/rust-cache@v2
+
+      - name: Package
+        env:
+          SAVE_IMAGE: "true"
+        run: ./package.sh ${{ inputs.target }}
+
+      - name: Upload to release page
+        run: |
+          gh release upload ${{ github.event.inputs.release_name }} ./package/echokit_${{ inputs.target }} --clobber
+          gh release upload ${{ github.event.inputs.release_name }} ./package/echokit_${{ inputs.target }}.bin --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
