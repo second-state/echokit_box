@@ -23,9 +23,12 @@ default = ["boards"]
 experimental = ["esp-idf-svc/experimental"]
 
 boards = []
-box = []
-cube = ["boards"]
-cube2 = ["boards"]
+_no_default = []
+box = ["_no_default"]
+cube = ["_no_default"]
+cube2 = ["_no_default"]
+
+mfrc522 = ["ndef"]
 
 [dependencies]
 log = "0.4"
@@ -69,6 +72,7 @@ tokio-websockets = { version = "0.8", features = [
 bytes = "1.10.0"
 
 qrcode = { version = "0.14.1", default-features = false, features = [] }
+ndef =  {version="0.4.0", features=["alloc"], optional = true }
 
 [build-dependencies]
 embuild = "0.33"

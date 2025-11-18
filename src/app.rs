@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::{
-    audio::{self, AudioEvent, MicRx},
+    audio::{self, AudioEvent, EventRx},
     protocol::{self, ServerEvent},
     ws::Server,
 };
@@ -16,6 +16,7 @@ pub enum Event {
     MicAudioEnd,
     MicInterrupt(Vec<i16>),
     MicInterruptWaitTimeout,
+    ServerUrl(String),
 }
 
 #[allow(dead_code)]
@@ -86,6 +87,9 @@ async fn select_evt(
                 Event::MicInterruptWaitTimeout => {
                     log::info!("[Select] Received MicInterruptWaitTimeout");
                 }
+                Event::ServerUrl(url) => {
+                    log::info!("[Select] Received ServerUrl: {}", url);
+                }
             }
             Some(evt)
         }
@@ -154,7 +158,7 @@ const NORMAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 pub async fn main_work<'d>(
     mut server: Server,
     player_tx: audio::PlayerTx,
-    mut evt_rx: MicRx,
+    mut evt_rx: EventRx,
     backgroud_buffer: Option<&'d [u8]>,
 ) -> anyhow::Result<()> {
     #[derive(PartialEq, Eq)]
@@ -165,7 +169,7 @@ pub async fn main_work<'d>(
         Idle,
     }
 
-    let mut gui = crate::ui::UI::new(backgroud_buffer)?;
+    let mut gui = crate::ui::UI::new(backgroud_buffer, crate::boards::flush_display)?;
 
     gui.state = "Idle".to_string();
     gui.display_flush().unwrap();
@@ -510,6 +514,17 @@ pub async fn main_work<'d>(
             }
 
             Event::ServerEvent(ServerEvent::StartVideo | ServerEvent::EndVideo) => {}
+            Event::ServerUrl(url) => {
+                log::info!("Received ServerUrl: {}", url);
+                if url != server.url {
+                    init_hello = false;
+                    server = Server::new(server.id, url).await?;
+                    state = State::Idle;
+                    gui.state = "Idle".to_string();
+                    gui.text = format!("Server URL updated:\n{}", server.url);
+                    gui.display_flush().unwrap();
+                }
+            }
         }
     }
 

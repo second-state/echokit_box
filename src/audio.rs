@@ -27,7 +27,7 @@ unsafe fn afe_init() -> (
     // afe_config.vad_min_speech_ms = 300;
     afe_config.vad_mode = esp_sr::vad_mode_t_VAD_MODE_3;
     afe_config.agc_init = true;
-    afe_config.afe_linear_gain = 2.0;
+    // afe_config.afe_linear_gain = 2.0;
     afe_config.aec_init = true;
     afe_config.aec_mode = esp_sr::aec_mode_t_AEC_MODE_VOIP_HIGH_PERF;
     // afe_config.aec_filter_length = 5;
@@ -141,10 +141,10 @@ pub static WAKE_WAV: &[u8] = include_bytes!("../assets/hello_beep.wav");
 
 pub type PlayerTx = tokio::sync::mpsc::UnboundedSender<AudioEvent>;
 pub type PlayerRx = tokio::sync::mpsc::UnboundedReceiver<AudioEvent>;
-pub type MicTx = tokio::sync::mpsc::Sender<crate::app::Event>;
-pub type MicRx = tokio::sync::mpsc::Receiver<crate::app::Event>;
+pub type EventTx = tokio::sync::mpsc::Sender<crate::app::Event>;
+pub type EventRx = tokio::sync::mpsc::Receiver<crate::app::Event>;
 
-fn afe_worker(afe_handle: Arc<AFE>, tx: MicTx, trigger_mean_value: f32) -> anyhow::Result<()> {
+fn afe_worker(afe_handle: Arc<AFE>, tx: EventTx, trigger_mean_value: f32) -> anyhow::Result<()> {
     log::info!("AFE worker started");
     crate::log_heap();
     crate::print_stack_high();
@@ -481,7 +481,15 @@ fn audio_task_run(
                     send_buffer.push_back_end_speech(sender);
                 }
                 AudioEvent::VolSet(vol) => {
-                    send_buffer.volume = vol as i16;
+                    #[cfg(not(feature = "box"))]
+                    {
+                        send_buffer.volume = vol as i16;
+                    }
+                    #[cfg(feature = "box")]
+                    {
+                        crate::boards::atom_box::set_volum(vol);
+                    }
+
                     VOL_NUM.store(vol, std::sync::atomic::Ordering::Relaxed);
                 }
             }
@@ -547,7 +555,7 @@ pub struct BoxAudioWorker {
 }
 
 impl BoxAudioWorker {
-    pub fn run(self, mut rx: PlayerRx, tx: MicTx) -> anyhow::Result<()> {
+    pub fn run(self, mut rx: PlayerRx, tx: EventTx) -> anyhow::Result<()> {
         let i2s_config = config::StdConfig::new(
             config::Config::default()
                 .auto_clear(true)
@@ -632,7 +640,7 @@ pub struct BoardsAudioWorker {
 }
 
 impl BoardsAudioWorker {
-    pub fn run(self, mut rx: PlayerRx, tx: MicTx) -> anyhow::Result<()> {
+    pub fn run(self, mut rx: PlayerRx, tx: EventTx) -> anyhow::Result<()> {
         let i2s_config = config::StdConfig::new(
             config::Config::default()
                 .auto_clear(false)
@@ -708,37 +716,3 @@ impl BoardsAudioWorker {
         audio_task_run(&mut rx, &mut fn_read, &mut fn_write, afe_handle)
     }
 }
-
-// pub fn echo_test(mut rx: MicRx, mut tx: PlayerTx) -> anyhow::Result<()> {
-//     let mut record_sample = Vec::with_capacity(1024);
-
-//     loop {
-//         match rx.blocking_recv() {
-//             Some(crate::app::Event::MicAudioChunk(data)) => {
-//                 record_sample.extend_from_slice(&data);
-//             }
-//             Some(crate::app::Event::MicAudioEnd) => {
-//                 let len = record_sample.len() as f32;
-//                 let mean = record_sample
-//                     .iter()
-//                     .map(|x| x.abs() as f32 / len)
-//                     .sum::<f32>();
-
-//                 log::info!(
-//                     "MicAudioEnd, sending back {} bytes mean:{mean}",
-//                     len / 16000.0
-//                 );
-//                 let (sender, receiver) = tokio::sync::oneshot::channel();
-//                 tx.send(AudioEvent::StartSpeech)?;
-//                 tx.send(AudioEvent::SpeechChunki16(record_sample.clone()))?;
-//                 tx.send(AudioEvent::EndSpeech(sender))?;
-//                 let _ = receiver.blocking_recv();
-//                 record_sample.clear();
-//             }
-//             Some(_) => {}
-//             None => break,
-//         }
-//     }
-//     log::warn!("Echo test exited");
-//     Ok(())
-// }

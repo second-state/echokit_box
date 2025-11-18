@@ -7,9 +7,11 @@ const SSID_ID: BleUuid = uuid128!("1fda4d6e-2f14-42b0-96fa-453bed238375");
 const PASS_ID: BleUuid = uuid128!("a987ab18-a940-421a-a1d7-b94ee22bccbe");
 const SERVER_URL_ID: BleUuid = uuid128!("cef520a9-bcb5-4fc6-87f7-82804eee2b20");
 const BACKGROUND_GIF_ID: BleUuid = uuid128!("d1f3b2c4-5e6f-4a7b-8c9d-0e1f2a3b4c5d");
+const RESET_ID: BleUuid = uuid128!("f0e1d2c3-b4a5-6789-0abc-def123456789");
 
 pub fn bt(
     setting: Arc<Mutex<(super::Setting, esp_idf_svc::nvs::EspDefaultNvs)>>,
+    evt_tx: tokio::sync::mpsc::Sender<crate::app::Event>,
 ) -> anyhow::Result<String> {
     let ble_device = esp32_nimble::BLEDevice::take();
     let ble_addr = ble_device.get_addr()?.to_string();
@@ -150,6 +152,20 @@ pub fn bt(
             }
         } else {
             log::error!("Failed to parse new background GIF from bytes.");
+        }
+    });
+
+    let reset_characteristic = service
+        .lock()
+        .create_characteristic(RESET_ID, NimbleProperties::WRITE);
+    reset_characteristic.lock().on_write(move |args| {
+        let reset_cmd = args.recv_data();
+        if reset_cmd == b"RESET" {
+            evt_tx
+                .blocking_send(crate::app::Event::Event(crate::app::Event::RESET))
+                .unwrap();
+        } else {
+            log::warn!("Invalid reset command received via BLE.");
         }
     });
 

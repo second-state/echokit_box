@@ -115,16 +115,23 @@ async fn connect_handler(
 }
 
 pub struct Server {
-    pub uri: String,
+    pub url: String,
+    pub id: String,
     timeout: std::time::Duration,
     tx: tokio::sync::mpsc::Sender<SubmitItem>,
     rx: tokio::sync::mpsc::Receiver<ServerEvent>,
 }
 
 impl Server {
-    pub async fn new(uri: String) -> anyhow::Result<Self> {
+    pub async fn new(id: String, url: String) -> anyhow::Result<Self> {
+        let u = if url.ends_with("/") {
+            format!("{}{}", url, id)
+        } else {
+            format!("{}/{}", url, id)
+        };
+
         let (ws, _resp) = tokio_websockets::ClientBuilder::new()
-            .uri(&uri)?
+            .uri(&u)?
             .connect()
             .await?;
 
@@ -133,7 +140,8 @@ impl Server {
         let (tx, rx) = connect_handler(ws).await;
 
         Ok(Self {
-            uri,
+            id,
+            url,
             timeout,
             tx,
             rx,
@@ -145,9 +153,14 @@ impl Server {
     }
 
     pub async fn reconnect(&mut self) -> anyhow::Result<()> {
-        let uri = self.uri.clone();
+        let u = if self.url.ends_with("/") {
+            format!("{}{}?reconnect=true", self.url, self.id)
+        } else {
+            format!("{}/{}?reconnect=true", self.url, self.id)
+        };
+
         let (ws, _resp) = tokio_websockets::ClientBuilder::new()
-            .uri(&format!("{uri}?reconnect=true"))?
+            .uri(&u)?
             .connect()
             .await
             .map_err(|e| anyhow::anyhow!("Failed to reconnect: {}", e))?;

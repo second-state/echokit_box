@@ -5,13 +5,14 @@ use esp_idf_svc::eventloop::EspSystemEventLoop;
 mod app;
 mod audio;
 mod bt;
-mod hal;
 mod network;
 mod protocol;
 mod ui;
 mod ws;
 
-const AUDIO_STACK_SIZE: usize = 15 * 1024;
+mod boards;
+
+mod peripheral;
 
 #[derive(Debug, Clone)]
 struct Setting {
@@ -30,44 +31,41 @@ fn main() -> anyhow::Result<()> {
     let partition = esp_idf_svc::nvs::EspDefaultNvsPartition::take()?;
     let nvs = esp_idf_svc::nvs::EspDefaultNvs::new(partition, "setting", true)?;
 
-    log_heap();
-
-    crate::hal::audio_init();
-    ui::lcd_init().unwrap();
-    #[cfg(feature = "cube2")]
-    let _backlight = {
-        let mut backlight = ui::backlight_init(peripherals.pins.gpio13.into()).unwrap();
-        ui::set_backlight(&mut backlight, 70).unwrap();
-        backlight
-    };
-
-    log_heap();
-
     let state = nvs.get_u8("state").ok().flatten().unwrap_or(0);
 
-    let mut ssid_buf = [0; 32];
+    let mut str_buf = [0; 128];
     let ssid = nvs
-        .get_str("ssid", &mut ssid_buf)
+        .get_str("ssid", &mut str_buf)
         .map_err(|e| log::error!("Failed to get ssid: {:?}", e))
         .ok()
-        .flatten();
+        .flatten()
+        .unwrap_or_default()
+        .to_string();
 
-    let mut pass_buf = [0; 64];
     let pass = nvs
-        .get_str("pass", &mut pass_buf)
+        .get_str("pass", &mut str_buf)
         .map_err(|e| log::error!("Failed to get pass: {:?}", e))
         .ok()
-        .flatten();
+        .flatten()
+        .unwrap_or_default()
+        .to_string();
 
-    let mut server_url = [0; 128];
-    let server_url = nvs
-        .get_str("server_url", &mut server_url)
+    let mut server_url = nvs
+        .get_str("server_url", &mut str_buf)
         .map_err(|e| log::error!("Failed to get server_url: {:?}", e))
         .ok()
-        .flatten();
+        .flatten()
+        .unwrap_or_default()
+        .to_string();
 
     // 1MB buffer for GIF
-    let mut gif_buf = vec![0; 1024 * 1024];
+    let has_bg = nvs.contains("background_gif").unwrap_or(false);
+    let mut gif_buf = if has_bg {
+        vec![0; 1024 * 1024]
+    } else {
+        Vec::new()
+    };
+
     let background_gif = nvs
         .get_blob("background_gif", &mut gif_buf)?
         .unwrap_or(ui::DEFAULT_BACKGROUND);
@@ -79,7 +77,13 @@ fn main() -> anyhow::Result<()> {
     nvs.set_u8("state", 0).unwrap();
 
     log_heap();
-    let _ = ui::backgroud(&background_gif);
+
+    let (evt_tx, mut evt_rx) = tokio::sync::mpsc::channel(64);
+    let (tx1, rx1) = tokio::sync::mpsc::unbounded_channel();
+
+    crate::start_hal!(peripherals, evt_tx);
+
+    let _ = ui::backgroud(&background_gif, boards::flush_display);
 
     // Configures the button
     let mut button = esp_idf_svc::hal::gpio::PinDriver::input(peripherals.pins.gpio0)?;
@@ -90,30 +94,45 @@ fn main() -> anyhow::Result<()> {
         .enable_all()
         .build()?;
 
-    let mut gui = ui::UI::new(None).unwrap();
-
-    let setting = Arc::new(Mutex::new((
-        Setting {
-            ssid: ssid.unwrap_or_default().to_string(),
-            pass: pass.unwrap_or_default().to_string(),
-            server_url: server_url.unwrap_or_default().to_string(),
-            background_gif: (Vec::with_capacity(1024 * 1024), false), // 1MB
-        },
-        nvs,
-    )));
+    let mut gui = ui::UI::new(None, boards::flush_display).unwrap();
 
     log_heap();
 
+    gui.state = "Initializing...".to_string();
+    gui.text = "Wait Loading Server URL...".to_string();
+    gui.display_flush().unwrap();
+
+    while let Some(event) = evt_rx.blocking_recv() {
+        if let app::Event::ServerUrl(url) = event {
+            log::info!("Received ServerUrl event: {}", url);
+            if !url.is_empty() {
+                server_url = url;
+            }
+            break;
+        }
+    }
+
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    gui.text = format!("Server URL: {}\nContinuing...", server_url);
+    gui.display_flush().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(3000));
+
     let need_init = {
-        let setting = setting.lock().unwrap();
-        setting.0.ssid.is_empty()
-            || setting.0.pass.is_empty()
-            || setting.0.server_url.is_empty()
-            || button.is_low()
-            || state == 1
+        button.is_low() || state == 1 || ssid.is_empty() || pass.is_empty() || server_url.is_empty()
     };
     if need_init {
-        let ble_addr = bt::bt(setting.clone()).unwrap();
+        gif_buf.clear();
+        let setting = Arc::new(Mutex::new((
+            Setting {
+                ssid,
+                pass,
+                server_url,
+                background_gif: (gif_buf, false), // 1MB
+            },
+            nvs,
+        )));
+
+        let ble_addr = bt::bt(setting.clone(), evt_tx).unwrap();
         log_heap();
 
         gui.state = "Please setup device by bt".to_string();
@@ -135,7 +154,17 @@ fn main() -> anyhow::Result<()> {
             );
         }
 
-        b.block_on(button.wait_for_falling_edge()).unwrap();
+        b.block_on(async {
+            tokio::select! {
+                _ = button.wait_for_falling_edge() =>{
+                    log::info!("Button k0 pressed to enter setup");
+                }
+                _ = evt_rx.recv() => {
+                    log::info!("Received event to enter setup");
+                }
+            }
+        });
+
         {
             let mut setting = setting.lock().unwrap();
             if setting.0.background_gif.1 {
@@ -145,20 +174,18 @@ fn main() -> anyhow::Result<()> {
                 let mut new_gif = Vec::new();
                 std::mem::swap(&mut setting.0.background_gif.0, &mut new_gif);
 
-                let _ = ui::backgroud(&new_gif);
+                let _ = ui::backgroud(&new_gif, boards::flush_display);
                 log::info!("Background GIF set from NVS");
 
                 gui.text = "Background GIF set OK".to_string();
                 gui.display_flush().unwrap();
 
-                if !new_gif.is_empty() {
-                    setting
-                        .1
-                        .set_blob("background_gif", &new_gif)
-                        .map_err(|e| log::error!("Failed to save background GIF to NVS: {:?}", e))
-                        .unwrap();
-                    log::info!("Background GIF saved to NVS");
-                }
+                setting
+                    .1
+                    .set_blob("background_gif", &new_gif)
+                    .map_err(|e| log::error!("Failed to save background GIF to NVS: {:?}", e))
+                    .unwrap();
+                log::info!("Background GIF saved to NVS");
             }
         }
 
@@ -169,22 +196,13 @@ fn main() -> anyhow::Result<()> {
     gui.text.clear();
     gui.display_flush().unwrap();
 
-    let _wifi = {
-        let setting = setting.lock().unwrap();
-        network::wifi(
-            &setting.0.ssid,
-            &setting.0.pass,
-            peripherals.modem,
-            sysloop.clone(),
-        )
-    };
+    let _wifi = network::wifi(&ssid, &pass, peripherals.modem, sysloop.clone());
     if _wifi.is_err() {
         gui.state = "Failed to connect to wifi".to_string();
         gui.text = "Press K0 to open settings".to_string();
         gui.display_flush().unwrap();
         b.block_on(button.wait_for_falling_edge()).unwrap();
-        let setting = setting.lock().unwrap();
-        setting.1.set_u8("state", 1).unwrap();
+        nvs.set_u8("state", 1).unwrap();
         unsafe { esp_idf_svc::sys::esp_restart() }
     }
 
@@ -192,213 +210,10 @@ fn main() -> anyhow::Result<()> {
     log_heap();
 
     let mac = wifi.ap_netif().get_mac().unwrap();
-    let mac_str = format!(
+    let dev_id = format!(
         "{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
     );
-
-    let (evt_tx, evt_rx) = tokio::sync::mpsc::channel(64);
-    let (tx1, rx1) = tokio::sync::mpsc::unbounded_channel();
-
-    let evt_tx_ = evt_tx.clone();
-
-    #[cfg(feature = "box")]
-    {
-        let bclk = peripherals.pins.gpio21;
-        let din = peripherals.pins.gpio47;
-        let dout = peripherals.pins.gpio14;
-        let ws = peripherals.pins.gpio13;
-
-        let worker = audio::BoxAudioWorker {
-            i2s: peripherals.i2s0,
-            bclk: bclk.into(),
-            din: din.into(),
-            dout: dout.into(),
-            ws: ws.into(),
-            mclk: None,
-        };
-
-        std::thread::Builder::new()
-            .stack_size(AUDIO_STACK_SIZE)
-            .spawn(move || {
-                let r = worker.run(rx1, evt_tx_);
-                if let Err(e) = r {
-                    log::error!("Audio worker error: {:?}", e);
-                }
-            })
-            .map_err(|e| anyhow::anyhow!("Failed to spawn audio worker thread: {:?}", e))?;
-    }
-
-    #[cfg(not(feature = "box"))]
-    {
-        let sck = peripherals.pins.gpio5;
-        let din = peripherals.pins.gpio6;
-        let dout = peripherals.pins.gpio7;
-        let ws = peripherals.pins.gpio4;
-        let bclk = peripherals.pins.gpio15;
-        let lrclk = peripherals.pins.gpio16;
-
-        let worker = audio::BoardsAudioWorker {
-            out_i2s: peripherals.i2s1,
-            out_ws: lrclk.into(),
-            out_clk: bclk.into(),
-            dout: dout.into(),
-            out_mclk: None,
-
-            in_i2s: peripherals.i2s0,
-            in_ws: ws.into(),
-            in_clk: sck.into(),
-            din: din.into(),
-            in_mclk: None,
-        };
-
-        // let mut conf =
-        //     esp_idf_svc::hal::task::thread::ThreadSpawnConfiguration::get().unwrap_or_default();
-        // conf.pin_to_core = Some(esp_idf_svc::hal::cpu::Core::Core1);
-        // let r = conf.set();
-        // if let Err(e) = r {
-        //     log::error!("Failed to set thread stack alloc caps: {:?}", e);
-        // }
-
-        std::thread::Builder::new()
-            .stack_size(AUDIO_STACK_SIZE)
-            .spawn(move || {
-                log::info!(
-                    "Starting audio worker thread in core {:?}",
-                    esp_idf_svc::hal::cpu::core()
-                );
-                let r = worker.run(rx1, evt_tx_);
-                if let Err(e) = r {
-                    log::error!("Audio worker error: {:?}", e);
-                }
-            })
-            .map_err(|e| anyhow::anyhow!("Failed to spawn audio worker thread: {:?}", e))?;
-
-        if cfg!(feature = "cube") {
-            let mut vol_up_btn = esp_idf_svc::hal::gpio::PinDriver::input(peripherals.pins.gpio10)?;
-            vol_up_btn.set_pull(esp_idf_svc::hal::gpio::Pull::Up)?;
-            vol_up_btn.set_interrupt_type(esp_idf_svc::hal::gpio::InterruptType::PosEdge)?;
-
-            let evt_tx_vol_up = evt_tx.clone();
-            b.spawn(async move {
-                loop {
-                    let _ = vol_up_btn.wait_for_falling_edge().await;
-                    log::info!("Button vol up pressed {:?}", vol_up_btn.get_level());
-                    if evt_tx_vol_up
-                        .send(app::Event::Event(app::Event::VOL_UP))
-                        .await
-                        .is_err()
-                    {
-                        log::error!("Failed to send VOL_UP event");
-                        break;
-                    }
-                }
-            });
-
-            let mut vol_down_btn =
-                esp_idf_svc::hal::gpio::PinDriver::input(peripherals.pins.gpio39)?;
-            vol_down_btn.set_pull(esp_idf_svc::hal::gpio::Pull::Up)?;
-            vol_down_btn.set_interrupt_type(esp_idf_svc::hal::gpio::InterruptType::PosEdge)?;
-
-            let evt_tx_vol_down = evt_tx.clone();
-            b.spawn(async move {
-                loop {
-                    let _ = vol_down_btn.wait_for_falling_edge().await;
-                    log::info!("Button vol down pressed {:?}", vol_down_btn.get_level());
-                    if evt_tx_vol_down
-                        .send(app::Event::Event(app::Event::VOL_DOWN))
-                        .await
-                        .is_err()
-                    {
-                        log::error!("Failed to send VOL_DOWN event");
-                        break;
-                    }
-                }
-            });
-        } else if cfg!(feature = "cube2") {
-            let mut vol_up_btn = esp_idf_svc::hal::gpio::PinDriver::input(peripherals.pins.gpio40)?;
-            vol_up_btn.set_pull(esp_idf_svc::hal::gpio::Pull::Up)?;
-            vol_up_btn.set_interrupt_type(esp_idf_svc::hal::gpio::InterruptType::PosEdge)?;
-
-            let evt_tx_vol_up = evt_tx.clone();
-            b.spawn(async move {
-                loop {
-                    let _ = vol_up_btn.wait_for_falling_edge().await;
-                    log::info!("Button vol up pressed {:?}", vol_up_btn.get_level());
-                    if evt_tx_vol_up
-                        .send(app::Event::Event(app::Event::VOL_UP))
-                        .await
-                        .is_err()
-                    {
-                        log::error!("Failed to send VOL_UP event");
-                        break;
-                    }
-                }
-            });
-
-            let mut vol_down_btn =
-                esp_idf_svc::hal::gpio::PinDriver::input(peripherals.pins.gpio39)?;
-            vol_down_btn.set_pull(esp_idf_svc::hal::gpio::Pull::Up)?;
-            vol_down_btn.set_interrupt_type(esp_idf_svc::hal::gpio::InterruptType::PosEdge)?;
-
-            let evt_tx_vol_down = evt_tx.clone();
-            b.spawn(async move {
-                loop {
-                    let _ = vol_down_btn.wait_for_falling_edge().await;
-                    log::info!("Button vol down pressed {:?}", vol_down_btn.get_level());
-                    if evt_tx_vol_down
-                        .send(app::Event::Event(app::Event::VOL_DOWN))
-                        .await
-                        .is_err()
-                    {
-                        log::error!("Failed to send VOL_DOWN event");
-                        break;
-                    }
-                }
-            });
-        } else {
-            let mut vol_up_btn = esp_idf_svc::hal::gpio::PinDriver::input(peripherals.pins.gpio38)?;
-            vol_up_btn.set_pull(esp_idf_svc::hal::gpio::Pull::Up)?;
-            vol_up_btn.set_interrupt_type(esp_idf_svc::hal::gpio::InterruptType::PosEdge)?;
-
-            let evt_tx_vol_up = evt_tx.clone();
-            b.spawn(async move {
-                loop {
-                    let _ = vol_up_btn.wait_for_falling_edge().await;
-                    log::info!("Button vol up pressed {:?}", vol_up_btn.get_level());
-                    if evt_tx_vol_up
-                        .send(app::Event::Event(app::Event::VOL_UP))
-                        .await
-                        .is_err()
-                    {
-                        log::error!("Failed to send VOL_UP event");
-                        break;
-                    }
-                }
-            });
-
-            let mut vol_down_btn =
-                esp_idf_svc::hal::gpio::PinDriver::input(peripherals.pins.gpio39)?;
-            vol_down_btn.set_pull(esp_idf_svc::hal::gpio::Pull::Up)?;
-            vol_down_btn.set_interrupt_type(esp_idf_svc::hal::gpio::InterruptType::PosEdge)?;
-
-            let evt_tx_vol_down = evt_tx.clone();
-            b.spawn(async move {
-                loop {
-                    let _ = vol_down_btn.wait_for_falling_edge().await;
-                    log::info!("Button vol down pressed {:?}", vol_down_btn.get_level());
-                    if evt_tx_vol_down
-                        .send(app::Event::Event(app::Event::VOL_DOWN))
-                        .await
-                        .is_err()
-                    {
-                        log::error!("Failed to send VOL_DOWN event");
-                        break;
-                    }
-                }
-            });
-        }
-    }
 
     gui.state = "Connecting to server...".to_string();
     gui.text.clear();
@@ -406,22 +221,19 @@ fn main() -> anyhow::Result<()> {
 
     log_heap();
 
-    let server_url = {
-        let setting = setting.lock().unwrap();
-        format!("{}{}", setting.0.server_url, mac_str)
-    };
-    let server = b.block_on(ws::Server::new(server_url.clone()));
+    gui.state = "Failed to connect to server".to_string();
+    gui.text = format!("Please check your server URL: {server_url}\nPress K0 to open settings");
+    let server = b.block_on(ws::Server::new(dev_id, server_url));
     if server.is_err() {
-        gui.state = "Failed to connect to server".to_string();
-        gui.text = format!("Please check your server URL: {server_url}\nPress K0 to open settings");
         gui.display_flush().unwrap();
         b.block_on(button.wait_for_falling_edge()).unwrap();
-        let setting = setting.lock().unwrap();
-        setting.1.set_u8("state", 1).unwrap();
+        nvs.set_u8("state", 1).unwrap();
         unsafe { esp_idf_svc::sys::esp_restart() }
     }
 
     let server = server.unwrap();
+
+    crate::start_audio_workers!(peripherals, rx1, evt_tx.clone(), &b);
 
     let ws_task = app::main_work(server, tx1, evt_rx, Some(background_gif));
 

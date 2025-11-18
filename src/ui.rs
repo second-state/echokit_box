@@ -13,235 +13,18 @@ use embedded_graphics::{
     },
 };
 use embedded_text::TextBox;
-use esp_idf_svc::{
-    hal::{self, gpio::Pin, ledc::LedcDriver},
-    sys::{ledc_timer_config_t, EspError},
-};
 use u8g2_fonts::U8g2TextStyle;
 
 pub type ColorFormat = Rgb565;
 
 pub const DEFAULT_BACKGROUND: &[u8] = include_bytes!("../assets/echokit.gif");
 
-#[cfg(feature = "boards")]
-const DISPLAY_WIDTH: usize = 240;
-#[cfg(feature = "boards")]
-const DISPLAY_HEIGHT: usize = 240;
+use crate::boards::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
 
-#[cfg(feature = "box")]
-const DISPLAY_WIDTH: usize = 320;
-#[cfg(feature = "box")]
-const DISPLAY_HEIGHT: usize = 240;
+pub type FlushDisplayFn =
+    fn(color_data: &[u8], x_start: i32, y_start: i32, x_end: i32, y_end: i32) -> i32;
 
-#[cfg(feature = "boards")]
-fn init_spi() -> Result<(), EspError> {
-    use esp_idf_svc::sys::*;
-    const GPIO_NUM_NC: i32 = -1;
-
-    #[cfg(all(not(feature = "cube"), not(feature = "cube2")))]
-    const DISPLAY_MOSI_PIN: i32 = 47;
-    #[cfg(all(not(feature = "cube"), not(feature = "cube2")))]
-    const DISPLAY_CLK_PIN: i32 = 21;
-
-    #[cfg(feature = "cube")]
-    const DISPLAY_MOSI_PIN: i32 = 41;
-    #[cfg(feature = "cube")]
-    const DISPLAY_CLK_PIN: i32 = 42;
-
-    #[cfg(feature = "cube2")]
-    const DISPLAY_MOSI_PIN: i32 = 10;
-    #[cfg(feature = "cube2")]
-    const DISPLAY_CLK_PIN: i32 = 9;
-
-    let mut buscfg = spi_bus_config_t::default();
-    buscfg.__bindgen_anon_1.mosi_io_num = DISPLAY_MOSI_PIN;
-    buscfg.__bindgen_anon_2.miso_io_num = GPIO_NUM_NC;
-    buscfg.sclk_io_num = DISPLAY_CLK_PIN;
-    buscfg.__bindgen_anon_3.quadwp_io_num = GPIO_NUM_NC;
-    buscfg.__bindgen_anon_4.quadhd_io_num = GPIO_NUM_NC;
-    buscfg.max_transfer_sz = (DISPLAY_WIDTH * DISPLAY_HEIGHT * std::mem::size_of::<u16>()) as i32;
-    esp!(unsafe {
-        spi_bus_initialize(
-            spi_host_device_t_SPI3_HOST,
-            &buscfg,
-            spi_common_dma_t_SPI_DMA_CH_AUTO,
-        )
-    })
-}
-
-static mut ESP_LCD_PANEL_HANDLE: esp_idf_svc::sys::esp_lcd_panel_handle_t = std::ptr::null_mut();
-
-#[cfg(feature = "boards")]
-fn init_lcd() -> Result<(), EspError> {
-    use esp_idf_svc::sys::*;
-    #[cfg(all(not(feature = "cube"), not(feature = "cube2")))]
-    const DISPLAY_CS_PIN: i32 = 41;
-    #[cfg(feature = "cube")]
-    const DISPLAY_CS_PIN: i32 = 21;
-    #[cfg(feature = "cube2")]
-    const DISPLAY_CS_PIN: i32 = 14;
-
-    #[cfg(not(feature = "cube2"))]
-    const DISPLAY_DC_PIN: i32 = 40;
-
-    #[cfg(feature = "cube2")]
-    const DISPLAY_DC_PIN: i32 = 8;
-
-    ::log::info!("Install panel IO");
-    let mut panel_io: esp_lcd_panel_io_handle_t = std::ptr::null_mut();
-    let mut io_config = esp_lcd_panel_io_spi_config_t::default();
-    io_config.cs_gpio_num = DISPLAY_CS_PIN;
-    io_config.dc_gpio_num = DISPLAY_DC_PIN;
-    io_config.spi_mode = 3;
-    io_config.pclk_hz = 40 * 1000 * 1000;
-    io_config.trans_queue_depth = 10;
-    io_config.lcd_cmd_bits = 8;
-    io_config.lcd_param_bits = 8;
-    esp!(unsafe {
-        esp_lcd_new_panel_io_spi(spi_host_device_t_SPI3_HOST as _, &io_config, &mut panel_io)
-    })?;
-
-    ::log::info!("Install LCD driver");
-    #[cfg(not(feature = "cube2"))]
-    const DISPLAY_RST_PIN: i32 = 45;
-
-    #[cfg(feature = "cube2")]
-    const DISPLAY_RST_PIN: i32 = 18;
-
-    let mut panel_config = esp_lcd_panel_dev_config_t::default();
-    let mut panel: esp_lcd_panel_handle_t = std::ptr::null_mut();
-
-    panel_config.reset_gpio_num = DISPLAY_RST_PIN;
-    panel_config.data_endian = lcd_rgb_data_endian_t_LCD_RGB_DATA_ENDIAN_LITTLE;
-    panel_config.__bindgen_anon_1.rgb_ele_order = lcd_rgb_element_order_t_LCD_RGB_ELEMENT_ORDER_RGB;
-    panel_config.bits_per_pixel = 16;
-
-    esp!(unsafe { esp_lcd_new_panel_st7789(panel_io, &panel_config, &mut panel) })?;
-    unsafe { ESP_LCD_PANEL_HANDLE = panel };
-
-    const DISPLAY_MIRROR_X: bool = false;
-
-    #[cfg(feature = "cube")]
-    const DISPLAY_MIRROR_Y: bool = true;
-    #[cfg(feature = "cube")]
-    const DISPLAY_SWAP_XY: bool = true;
-
-    #[cfg(not(feature = "cube"))]
-    const DISPLAY_MIRROR_Y: bool = false;
-    #[cfg(not(feature = "cube"))]
-    const DISPLAY_SWAP_XY: bool = false;
-    const DISPLAY_INVERT_COLOR: bool = true;
-
-    ::log::info!("Reset LCD panel");
-    unsafe {
-        esp!(esp_lcd_panel_reset(panel))?;
-        esp!(esp_lcd_panel_init(panel))?;
-        esp!(esp_lcd_panel_invert_color(panel, DISPLAY_INVERT_COLOR))?;
-        esp!(esp_lcd_panel_swap_xy(panel, DISPLAY_SWAP_XY))?;
-        esp!(esp_lcd_panel_mirror(
-            panel,
-            DISPLAY_MIRROR_X,
-            DISPLAY_MIRROR_Y
-        ))?;
-        esp!(esp_lcd_panel_disp_on_off(panel, true))?; /* 启动屏幕 */
-    }
-
-    Ok(())
-}
-
-#[cfg(feature = "boards")]
-pub fn lcd_init() -> Result<(), EspError> {
-    init_spi()?;
-    init_lcd()?;
-    Ok(())
-}
-
-#[cfg(feature = "box")]
-pub fn lcd_init() -> Result<(), EspError> {
-    use esp_idf_svc::sys::hal_driver;
-    unsafe {
-        let config: hal_driver::lcd_cfg_t = std::mem::zeroed();
-        hal_driver::lcd_init(config);
-    }
-    Ok(())
-}
-
-#[allow(unused)]
-pub fn backlight_init(bl_pin: hal::gpio::AnyIOPin) -> anyhow::Result<LedcDriver<'static>> {
-    let config = hal::ledc::config::TimerConfig::new()
-        .resolution(hal::ledc::Resolution::Bits13)
-        .frequency(hal::units::Hertz(5000));
-    let time = unsafe { hal::ledc::TIMER0::new() };
-    let timer_driver = hal::ledc::LedcTimerDriver::new(time, &config)?;
-
-    let ledc_driver =
-        hal::ledc::LedcDriver::new(unsafe { hal::ledc::CHANNEL0::new() }, timer_driver, bl_pin)?;
-
-    Ok(ledc_driver)
-}
-
-const LEDC_MAX_DUTY: u32 = (1 << 13) - 1;
-#[allow(unused)]
-pub fn set_backlight<'d>(
-    ledc_driver: &mut hal::ledc::LedcDriver<'d>,
-    light: u8,
-) -> anyhow::Result<()> {
-    let light = 100.min(light) as u32;
-    let duty = LEDC_MAX_DUTY - (81 * (100 - light));
-    let duty = if light == 0 { 0 } else { duty };
-    ledc_driver.set_duty(duty)?;
-    Ok(())
-}
-
-#[inline(always)]
-fn get_esp_lcd_panel_handle() -> esp_idf_svc::sys::esp_lcd_panel_handle_t {
-    #[cfg(feature = "boards")]
-    unsafe {
-        ESP_LCD_PANEL_HANDLE
-    }
-    #[cfg(feature = "box")]
-    unsafe {
-        std::mem::transmute(esp_idf_svc::sys::hal_driver::panel_handle)
-    }
-}
-
-#[cfg(feature = "cube")]
-pub fn flush_display(color_data: &[u8], x_start: i32, y_start: i32, x_end: i32, y_end: i32) -> i32 {
-    unsafe {
-        let e = esp_idf_svc::sys::esp_lcd_panel_draw_bitmap(
-            get_esp_lcd_panel_handle(),
-            x_start + 80,
-            y_start,
-            x_end + 80,
-            y_end,
-            color_data.as_ptr().cast(),
-        );
-        if e != 0 {
-            log::warn!("flush_display error: {}", e);
-        }
-        e
-    }
-}
-
-#[cfg(not(feature = "cube"))]
-pub fn flush_display(color_data: &[u8], x_start: i32, y_start: i32, x_end: i32, y_end: i32) -> i32 {
-    unsafe {
-        let e = esp_idf_svc::sys::esp_lcd_panel_draw_bitmap(
-            get_esp_lcd_panel_handle(),
-            x_start,
-            y_start,
-            x_end,
-            y_end,
-            color_data.as_ptr().cast(),
-        );
-        if e != 0 {
-            log::warn!("flush_display error: {}", e);
-        }
-        e
-    }
-}
-
-pub fn backgroud(gif: &[u8]) -> Result<(), std::convert::Infallible> {
+pub fn backgroud(gif: &[u8], f: FlushDisplayFn) -> Result<(), std::convert::Infallible> {
     let image = tinygif::Gif::<ColorFormat>::from_slice(gif).unwrap();
 
     // Create a new framebuffer
@@ -261,7 +44,7 @@ pub fn backgroud(gif: &[u8]) -> Result<(), std::convert::Infallible> {
             display.clear(ColorFormat::WHITE)?;
         }
         frame.draw(display.as_mut())?;
-        flush_display(
+        f(
             display.data(),
             0,
             0,
@@ -371,6 +154,8 @@ pub struct UI {
             { buffer_size::<ColorFormat>(DISPLAY_WIDTH, DISPLAY_HEIGHT) },
         >,
     >,
+
+    flush_fn: FlushDisplayFn,
 }
 
 const COLOR_WIDTH: u32 = 2;
@@ -383,14 +168,19 @@ fn alpha_mix(source: ColorFormat, target: ColorFormat, alpha: f32) -> ColorForma
     )
 }
 
-fn flush_area<const COLOR_WIDTH: u32>(data: &[u8], size: Size, area: Rectangle) -> i32 {
+fn flush_area<const COLOR_WIDTH: u32>(
+    data: &[u8],
+    size: Size,
+    area: Rectangle,
+    flash_fn: FlushDisplayFn,
+) -> i32 {
     let start_y = area.top_left.y as u32;
     let end_y = start_y + area.size.height;
 
     let start_index = start_y * size.width * COLOR_WIDTH;
     let data_len = area.size.height * size.width * COLOR_WIDTH;
     if let Some(area_data) = data.get(start_index as usize..(start_index + data_len) as usize) {
-        flush_display(
+        flash_fn(
             area_data,
             0,
             start_y as i32,
@@ -461,7 +251,7 @@ impl qrcode::render::Canvas for QrCanvas {
 }
 
 impl UI {
-    pub fn new(backgroud_gif: Option<&[u8]>) -> anyhow::Result<Self> {
+    pub fn new(backgroud_gif: Option<&[u8]>, flush_fn: FlushDisplayFn) -> anyhow::Result<Self> {
         let mut display = Box::new(Framebuffer::<
             ColorFormat,
             _,
@@ -536,6 +326,7 @@ impl UI {
             display,
             state_area,
             text_area,
+            flush_fn,
         })
     }
 
@@ -591,6 +382,7 @@ impl UI {
                         self.text_area.size.height + self.state_area.size.height,
                     ),
                 ),
+                self.flush_fn,
             );
             if e == 0 {
                 break;
@@ -670,6 +462,7 @@ impl UI {
                         self.text_area.size.height + self.state_area.size.height,
                     ),
                 ),
+                self.flush_fn,
             );
             if e == 0 {
                 break;
