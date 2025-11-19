@@ -1,202 +1,99 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>蓝牙控制面板</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.3/font/bootstrap-icons.css">
-    <style>
-        body {
-            background-color: #f8f9fa;
-            padding-top: 20px;
-            background-size: cover;
-            background-position: center;
-            background-repeat: no-repeat;
-            background-attachment: fixed;
-        }
-
-        .card {
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            margin-bottom: 20px;
-            background-color: rgba(255, 255, 255, 0.95);
-        }
-
-        .card-header {
-            background-color: #6c757d;
-            color: white;
-            border-radius: 10px 10px 0 0 !important;
-        }
-
-        .status-indicator {
-            width: 15px;
-            height: 15px;
-            border-radius: 50%;
-            display: inline-block;
-            margin-right: 5px;
-        }
-
-        .status-disconnected {
-            background-color: #dc3545;
-        }
-
-        .status-connected {
-            background-color: #28a745;
-        }
-
-        .toast-container {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 1050;
-        }
-
-        .input-group-text {
-            background-color: #6c757d;
-            color: white;
-            border: none;
-        }
-
-        .btn-primary {
-            background-color: #5a6268;
-            border-color: #5a6268;
-        }
-
-        .btn-primary:hover {
-            background-color: #4e555b;
-            border-color: #4e555b;
-        }
-
-        .file-info {
-            font-size: 12px;
-            color: #666;
-            margin-top: 5px;
-        }
-
-        .error-text {
-            color: #dc3545;
-            font-size: 12px;
-            margin-top: 5px;
-        }
-
-        .bg-preview {
-            width: 100px;
-            height: 60px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-            background-size: cover;
-            background-position: center;
-            display: none;
-            margin-top: 10px;
-        }
-    </style>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 </head>
 
-<body>
-    <div class="container">
-        <div class="row justify-content-center">
-            <div class="col-md-8">
-                <div class="card">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <h4 class="mb-0">蓝牙控制面板</h4>
-                        <div>
-                            <span class="status-indicator status-disconnected" id="statusIndicator"></span>
-                            <span id="connectionStatus">未连接</span>
+<body class="bg-base-200 min-h-screen py-8 bg-cover bg-center bg-no-repeat bg-fixed">
+    <div class="container mx-auto px-4 max-w-4xl">
+        <div class="card bg-base-100 shadow-xl">
+            <div class="card-body">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="card-title text-2xl">蓝牙控制面板</h2>
+                    <div class="flex items-center gap-2">
+                        <span class="badge badge-error" id="statusIndicator">●</span>
+                        <span id="connectionStatus">未连接</span>
+                    </div>
+                </div>
+
+                <button class="btn btn-primary w-full mb-4" id="connectButton">
+                    连接设备
+                </button>
+
+                <div id="controlPanel" class="hidden space-y-4">
+                    <div class="flex gap-2">
+                        <button class="btn btn-outline flex-1" id="loadAllButton">
+                            🔄 加载配置
+                        </button>
+                        <button class="btn btn-primary flex-1" id="saveAllButton" disabled>
+                            💾 保存修改
+                        </button>
+                        <button class="btn btn-warning" id="resetButton">
+                            🔄 重启
+                        </button>
+                    </div>
+
+                    <div class="card bg-base-100 border border-base-300">
+                        <div class="card-body">
+                            <h3 class="card-title text-lg" id="ssidTitle">SSID 设置</h3>
+                            <label class="form-control">
+                                <div class="label">
+                                    <span class="label-text">SSID</span>
+                                </div>
+                                <input type="text" id="ssidInput" placeholder="输入SSID" class="input input-bordered w-full">
+                            </label>
                         </div>
                     </div>
-                    <div class="card-body">
-                        <div class="d-grid gap-2 mb-4">
-                            <button class="btn btn-primary" id="connectButton">
-                                <i class="bi bi-bluetooth"></i> 连接设备
-                            </button>
+
+                    <div class="card bg-base-100 border border-base-300">
+                        <div class="card-body">
+                            <h3 class="card-title text-lg" id="passTitle">密码设置</h3>
+                            <label class="form-control">
+                                <div class="label">
+                                    <span class="label-text">密码</span>
+                                </div>
+                                <input type="password" id="passInput" placeholder="输入密码" class="input input-bordered w-full">
+                            </label>
                         </div>
+                    </div>
 
-                        <div id="controlPanel" style="display: none;">
-                            <div class="card mb-3">
-                                <div class="card-header">
-                                    <h5 class="mb-0">SSID 设置</h5>
+                    <div class="card bg-base-100 border border-base-300">
+                        <div class="card-body">
+                            <h3 class="card-title text-lg" id="urlTitle">服务器URL设置</h3>
+                            <label class="form-control">
+                                <div class="label">
+                                    <span class="label-text">URL</span>
                                 </div>
-                                <div class="card-body">
-                                    <div class="input-group mb-3">
-                                        <span class="input-group-text">SSID</span>
-                                        <input type="text" class="form-control" id="ssidInput" placeholder="输入SSID">
-                                    </div>
-                                    <div class="d-flex justify-content-between">
-                                        <button class="btn btn-primary" id="readSsidButton">
-                                            <i class="bi bi-arrow-down-circle"></i> 读取
-                                        </button>
-                                        <button class="btn btn-primary" id="writeSsidButton">
-                                            <i class="bi bi-arrow-up-circle"></i> 写入
-                                        </button>
-                                    </div>
+                                <input type="text" id="serverUrlInput" placeholder="输入服务器URL" class="input input-bordered w-full">
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="card bg-base-100 border border-base-300">
+                        <div class="card-body">
+                            <h3 class="card-title text-lg">背景图片设置</h3>
+                            <div class="form-control mb-4">
+                                <label class="label">
+                                    <span class="label-text">选择背景图片 (GIF)</span>
+                                </label>
+                                <input type="file" class="file-input file-input-bordered w-full" id="backgroundImage"
+                                    accept=".gif" onchange="validateAndPreviewFile(this)">
+                                <label class="label">
+                                    <span class="label-text-alt">只允许GIF文件，最大1MB</span>
+                                </label>
+                                <div id="fileError" class="text-error text-sm"></div>
+                                <div id="bgPreview"
+                                    class="hidden mt-2 w-24 h-16 rounded border border-base-300 bg-cover bg-center">
                                 </div>
                             </div>
-
-                            <div class="card mb-3">
-                                <div class="card-header">
-                                    <h5 class="mb-0">密码设置</h5>
-                                </div>
-                                <div class="card-body">
-                                    <div class="input-group mb-3">
-                                        <span class="input-group-text">密码</span>
-                                        <input type="password" class="form-control" id="passInput" placeholder="输入密码">
-                                    </div>
-                                    <div class="d-flex justify-content-between">
-                                        <button class="btn btn-primary" id="readPassButton">
-                                            <i class="bi bi-arrow-down-circle"></i> 读取
-                                        </button>
-                                        <button class="btn btn-primary" id="writePassButton">
-                                            <i class="bi bi-arrow-up-circle"></i> 写入
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="card mb-3">
-                                <div class="card-header">
-                                    <h5 class="mb-0">服务器URL设置</h5>
-                                </div>
-                                <div class="card-body">
-                                    <div class="input-group mb-3">
-                                        <span class="input-group-text">URL</span>
-                                        <input type="text" class="form-control" id="serverUrlInput"
-                                            placeholder="输入服务器URL">
-                                    </div>
-                                    <div class="d-flex justify-content-between">
-                                        <button class="btn btn-primary" id="readServerUrlButton">
-                                            <i class="bi bi-arrow-down-circle"></i> 读取
-                                        </button>
-                                        <button class="btn btn-primary" id="writeServerUrlButton">
-                                            <i class="bi bi-arrow-up-circle"></i> 写入
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="card">
-                                <div class="card-header">
-                                    <h5 class="mb-0">背景图片设置</h5>
-                                </div>
-                                <div class="card-body">
-                                    <div class="mb-3">
-                                        <label for="backgroundImage" class="form-label">选择背景图片 (GIF)</label>
-                                        <input type="file" class="form-control" id="backgroundImage" accept=".gif"
-                                            onchange="validateAndPreviewFile(this)">
-                                        <div class="file-info">只允许GIF文件，最大1MB</div>
-                                        <div id="fileError" class="error-text"></div>
-                                        <div id="bgPreview" class="bg-preview"></div>
-                                    </div>
-                                    <div class="d-flex justify-content-between">
-                                        <button class="btn btn-primary" id="writeBgButton" disabled>
-                                            <i class="bi bi-arrow-up-circle"></i> 设置背景
-                                        </button>
-                                        <button class="btn btn-secondary" id="clearBgButton">
-                                            <i class="bi bi-x-circle"></i> 清除背景
-                                        </button>
-                                    </div>
-                                </div>
+                            <div class="flex gap-2">
+                                <button class="btn btn-primary flex-1" id="writeBgButton" disabled>设置背景</button>
+                                <button class="btn btn-outline flex-1" id="clearBgButton">清除背景</button>
                             </div>
                         </div>
                     </div>
@@ -206,19 +103,12 @@
     </div>
 
     <!-- 提示消息容器 -->
-    <div class="toast-container">
-        <div class="toast" role="alert" aria-live="assertive" aria-atomic="true" id="notificationToast">
-            <div class="toast-header">
-                <strong class="me-auto" id="toastTitle">通知</strong>
-                <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
-            </div>
-            <div class="toast-body" id="toastMessage">
-                消息内容
-            </div>
+    <div class="toast toast-top toast-end z-50" id="toastContainer">
+        <div class="alert" id="notificationToast" style="display: none;">
+            <span id="toastMessage">消息内容</span>
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         // 定义UUID
         const SERVICE_ID = "623fa3e2-631b-4f8f-a6e7-a7b09c03e7e0";
@@ -226,6 +116,7 @@
         const PASS_ID = "a987ab18-a940-421a-a1d7-b94ee22bccbe";
         const SERVER_URL_ID = "cef520a9-bcb5-4fc6-87f7-82804eee2b20";
         const BACKGROUND_IMAGE_ID = "d1f3b2c4-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
+        const RESET_ID = "f0e1d2c3-b4a5-6789-0abc-def123456789";
 
         // 全局变量
         let device = null;
@@ -240,46 +131,77 @@
         const controlPanel = document.getElementById('controlPanel');
         const statusIndicator = document.getElementById('statusIndicator');
         const connectionStatus = document.getElementById('connectionStatus');
+        const loadAllButton = document.getElementById('loadAllButton');
+        const saveAllButton = document.getElementById('saveAllButton');
+        const resetButton = document.getElementById('resetButton');
         const ssidInput = document.getElementById('ssidInput');
         const passInput = document.getElementById('passInput');
         const serverUrlInput = document.getElementById('serverUrlInput');
+        const ssidTitle = document.getElementById('ssidTitle');
+        const passTitle = document.getElementById('passTitle');
+        const urlTitle = document.getElementById('urlTitle');
         const backgroundImage = document.getElementById('backgroundImage');
         const bgPreview = document.getElementById('bgPreview');
         const fileError = document.getElementById('fileError');
-        const readSsidButton = document.getElementById('readSsidButton');
-        const writeSsidButton = document.getElementById('writeSsidButton');
-        const readPassButton = document.getElementById('readPassButton');
-        const writePassButton = document.getElementById('writePassButton');
-        const readServerUrlButton = document.getElementById('readServerUrlButton');
-        const writeServerUrlButton = document.getElementById('writeServerUrlButton');
-
         const writeBgButton = document.getElementById('writeBgButton');
         const clearBgButton = document.getElementById('clearBgButton');
         const notificationToast = document.getElementById('notificationToast');
-        const toastTitle = document.getElementById('toastTitle');
         const toastMessage = document.getElementById('toastMessage');
 
-        // 初始化Toast
-        toast = new bootstrap.Toast(notificationToast);
+        // 跟踪哪些字段被修改
+        const modifiedFields = {
+            ssid: false,
+            pass: false,
+            url: false
+        };
+
+        // 标记字段为已修改
+        function markFieldAsModified(fieldName, titleElement) {
+            modifiedFields[fieldName] = true;
+            if (!titleElement.textContent.endsWith(' *')) {
+                titleElement.textContent += ' *';
+            }
+            updateSaveButtonState();
+        }
+
+        // 清除字段修改标记
+        function clearFieldModification(fieldName, titleElement) {
+            modifiedFields[fieldName] = false;
+            titleElement.textContent = titleElement.textContent.replace(' *', '');
+            updateSaveButtonState();
+        }
+
+        // 更新保存按钮状态
+        function updateSaveButtonState() {
+            const hasModifications = Object.values(modifiedFields).some(modified => modified);
+            saveAllButton.disabled = !hasModifications;
+        }
 
         // 显示通知
         function showNotification(title, message, isError = false) {
-            toastTitle.textContent = title;
-            toastMessage.textContent = message;
-            notificationToast.classList.remove('bg-danger', 'text-white');
+            toastMessage.textContent = `${title}: ${message}`;
+            notificationToast.classList.remove('alert-success', 'alert-error', 'alert-info');
 
             if (isError) {
-                notificationToast.classList.add('bg-danger', 'text-white');
+                notificationToast.classList.add('alert-error');
+            } else if (title === '信息') {
+                notificationToast.classList.add('alert-info');
+            } else {
+                notificationToast.classList.add('alert-success');
             }
 
-            toast.show();
+            notificationToast.style.display = 'flex';
+
+            setTimeout(() => {
+                notificationToast.style.display = 'none';
+            }, 3000);
         }
 
         // 验证并预览文件
         function validateAndPreviewFile(input) {
             const file = input.files[0];
             fileError.textContent = '';
-            bgPreview.style.display = 'none';
+            bgPreview.classList.add('hidden');
             writeBgButton.disabled = true;
             selectedBackgroundFile = null;
 
@@ -303,7 +225,7 @@
                 const reader = new FileReader();
                 reader.onload = function (e) {
                     bgPreview.style.backgroundImage = `url(${e.target.result})`;
-                    bgPreview.style.display = 'block';
+                    bgPreview.classList.remove('hidden');
                     selectedBackgroundFile = file;
                     writeBgButton.disabled = false;
                 };
@@ -320,7 +242,6 @@
         // 清除背景图片
         function clearBackgroundImage() {
             document.body.style.backgroundImage = '';
-            document.body.style.backgroundColor = '#f8f9fa';
         }
 
         // 连接设备
@@ -341,13 +262,16 @@
                 updateConnectionStatus();
 
                 // 显示控制面板
-                controlPanel.style.display = 'block';
-                connectButton.innerHTML = '<i class="bi bi-bluetooth"></i> 断开连接';
+                controlPanel.classList.remove('hidden');
+                connectButton.textContent = '断开连接';
 
                 // 设备断开连接时的处理
                 device.addEventListener('gattserverdisconnected', handleDisconnection);
 
                 showNotification('成功', '已成功连接到设备');
+
+                // 自动加载所有配置
+                await loadAllConfiguration();
             } catch (error) {
                 console.error('连接失败:', error);
                 showNotification('错误', '连接设备失败: ' + error.message, true);
@@ -371,8 +295,8 @@
         function handleDisconnection() {
             isConnected = false;
             updateConnectionStatus();
-            controlPanel.style.display = 'none';
-            connectButton.innerHTML = '<i class="bi bi-bluetooth"></i> 连接设备';
+            controlPanel.classList.add('hidden');
+            connectButton.textContent = '连接设备';
             device = null;
             server = null;
             service = null;
@@ -382,12 +306,12 @@
         // 更新连接状态UI
         function updateConnectionStatus() {
             if (isConnected) {
-                statusIndicator.classList.remove('status-disconnected');
-                statusIndicator.classList.add('status-connected');
+                statusIndicator.classList.remove('badge-error');
+                statusIndicator.classList.add('badge-success');
                 connectionStatus.textContent = '已连接';
             } else {
-                statusIndicator.classList.remove('status-connected');
-                statusIndicator.classList.add('status-disconnected');
+                statusIndicator.classList.remove('badge-success');
+                statusIndicator.classList.add('badge-error');
                 connectionStatus.textContent = '未连接';
             }
         }
@@ -396,7 +320,7 @@
         async function readCharacteristic(characteristicId, inputElement) {
             if (!isConnected || !service) {
                 showNotification('错误', '设备未连接', true);
-                return;
+                return false;
             }
 
             try {
@@ -409,18 +333,114 @@
 
                 // 更新输入框
                 inputElement.value = stringValue;
-                showNotification('成功', '读取数据成功');
+                return true;
             } catch (error) {
                 console.error('读取失败:', error);
                 showNotification('错误', '读取数据失败: ' + error.message, true);
+                return false;
+            }
+        }
+
+        // 加载所有配置
+        async function loadAllConfiguration() {
+            if (!isConnected || !service) {
+                showNotification('错误', '设备未连接', true);
+                return;
+            }
+
+            loadAllButton.disabled = true;
+            loadAllButton.textContent = '加载中...';
+
+            try {
+                await readCharacteristic(SSID_ID, ssidInput);
+                await readCharacteristic(PASS_ID, passInput);
+                await readCharacteristic(SERVER_URL_ID, serverUrlInput);
+
+                // 清除所有修改标记
+                clearFieldModification('ssid', ssidTitle);
+                clearFieldModification('pass', passTitle);
+                clearFieldModification('url', urlTitle);
+
+                showNotification('成功', '已加载所有配置');
+            } catch (error) {
+                console.error('加载配置失败:', error);
+                showNotification('错误', '加载配置失败', true);
+            } finally {
+                loadAllButton.disabled = false;
+                loadAllButton.textContent = '🔄 加载配置';
+            }
+        }
+
+        // 保存所有修改
+        async function saveAllModifications() {
+            if (!isConnected || !service) {
+                showNotification('错误', '设备未连接', true);
+                return;
+            }
+
+            saveAllButton.disabled = true;
+            saveAllButton.textContent = '保存中...';
+
+            try {
+                let savedCount = 0;
+
+                if (modifiedFields.ssid) {
+                    await writeCharacteristic(SSID_ID, ssidInput.value);
+                    clearFieldModification('ssid', ssidTitle);
+                    savedCount++;
+                }
+
+                if (modifiedFields.pass) {
+                    await writeCharacteristic(PASS_ID, passInput.value);
+                    clearFieldModification('pass', passTitle);
+                    savedCount++;
+                }
+
+                if (modifiedFields.url) {
+                    await writeCharacteristic(SERVER_URL_ID, serverUrlInput.value);
+                    clearFieldModification('url', urlTitle);
+                    savedCount++;
+                }
+
+                showNotification('成功', `已保存 ${savedCount} 项修改`);
+            } catch (error) {
+                console.error('保存修改失败:', error);
+                showNotification('错误', '保存修改失败', true);
+            } finally {
+                saveAllButton.disabled = true;
+                saveAllButton.textContent = '💾 保存修改';
+            }
+        }
+
+        // 重启设备
+        async function resetDevice() {
+            if (!isConnected || !service) {
+                showNotification('错误', '设备未连接', true);
+                return;
+            }
+
+            resetButton.disabled = true;
+            resetButton.textContent = '重启中...';
+
+            try {
+                const characteristic = await service.getCharacteristic(RESET_ID);
+                const encoder = new TextEncoder();
+                const data = encoder.encode('RESET');
+                await characteristic.writeValue(data);
+                showNotification('成功', '设备重启指令已发送');
+            } catch (error) {
+                console.error('重启失败:', error);
+                showNotification('错误', '设备不支持此操作，请通过按设备上的 k0 来重启', true);
+            } finally {
+                resetButton.disabled = false;
+                resetButton.textContent = '🔄 重启';
             }
         }
 
         // 写入Characteristic值
         async function writeCharacteristic(characteristicId, inputValue) {
             if (!isConnected || !service) {
-                showNotification('错误', '设备未连接', true);
-                return;
+                throw new Error('设备未连接');
             }
 
             inputValue = inputValue || '';
@@ -430,10 +450,9 @@
                 const encoder = new TextEncoder();
                 const data = encoder.encode(inputValue);
                 await characteristic.writeValue(data);
-                showNotification('成功', '写入数据成功');
             } catch (error) {
                 console.error('写入失败:', error);
-                showNotification('错误', '写入数据失败: ' + error.message, true);
+                throw error;
             }
         }
 
@@ -462,7 +481,7 @@
 
                 // 禁用按钮防止重复点击
                 writeBgButton.disabled = true;
-                writeBgButton.innerHTML = '<i class="bi bi-hourglass-split"></i> 传输中...';
+                writeBgButton.textContent = '传输中...';
 
                 // 分块传输
                 for (let i = 0; i < totalChunks; i++) {
@@ -481,7 +500,7 @@
 
                     // 更新进度
                     const progress = Math.round(((i + 1) / totalChunks) * 100);
-                    writeBgButton.innerHTML = `<i class="bi bi-hourglass-split"></i> 传输中... ${progress}%`;
+                    writeBgButton.textContent = `传输中... ${progress}%`;
 
                     // 小延时确保设备有足够时间处理
                     await new Promise(resolve => setTimeout(resolve, 50));
@@ -496,7 +515,7 @@
 
                 // 恢复按钮状态
                 writeBgButton.disabled = false;
-                writeBgButton.innerHTML = '<i class="bi bi-arrow-up-circle"></i> 设置背景';
+                writeBgButton.textContent = '设置背景';
 
                 showNotification('成功', `背景图片设置成功！传输了${totalChunks}个数据包，总大小${Math.round(totalSize / 1024)}KB`);
 
@@ -505,7 +524,7 @@
 
                 // 恢复按钮状态
                 writeBgButton.disabled = false;
-                writeBgButton.innerHTML = '<i class="bi bi-arrow-up-circle"></i> 设置背景';
+                writeBgButton.textContent = '设置背景';
 
                 showNotification('错误', '写入背景图片失败: ' + error.message, true);
             }
@@ -520,28 +539,29 @@
             }
         });
 
-        readSsidButton.addEventListener('click', () => {
-            readCharacteristic(SSID_ID, ssidInput);
+        loadAllButton.addEventListener('click', () => {
+            loadAllConfiguration();
         });
 
-        writeSsidButton.addEventListener('click', () => {
-            writeCharacteristic(SSID_ID, ssidInput.value);
+        saveAllButton.addEventListener('click', () => {
+            saveAllModifications();
         });
 
-        readPassButton.addEventListener('click', () => {
-            readCharacteristic(PASS_ID, passInput);
+        resetButton.addEventListener('click', () => {
+            resetDevice();
         });
 
-        writePassButton.addEventListener('click', () => {
-            writeCharacteristic(PASS_ID, passInput.value);
+        // 监听输入框变化
+        ssidInput.addEventListener('input', () => {
+            markFieldAsModified('ssid', ssidTitle);
         });
 
-        readServerUrlButton.addEventListener('click', () => {
-            readCharacteristic(SERVER_URL_ID, serverUrlInput);
+        passInput.addEventListener('input', () => {
+            markFieldAsModified('pass', passTitle);
         });
 
-        writeServerUrlButton.addEventListener('click', () => {
-            writeCharacteristic(SERVER_URL_ID, serverUrlInput.value);
+        serverUrlInput.addEventListener('input', () => {
+            markFieldAsModified('url', urlTitle);
         });
 
         writeBgButton.addEventListener('click', () => {

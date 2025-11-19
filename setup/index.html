@@ -1,205 +1,103 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en" data-theme="light">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Setup EchoKit</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.3/font/bootstrap-icons.css">
-    <style>
-        body {
-            background-color: #f8f9fa;
-            padding-top: 20px;
-            background-size: cover;
-            background-position: center;
-            background-repeat: no-repeat;
-            background-attachment: fixed;
-        }
-
-        .card {
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            margin-bottom: 20px;
-            background-color: rgba(255, 255, 255, 0.95);
-        }
-
-        .card-header {
-            background-color: #6c757d;
-            color: white;
-            border-radius: 10px 10px 0 0 !important;
-        }
-
-        .status-indicator {
-            width: 15px;
-            height: 15px;
-            border-radius: 50%;
-            display: inline-block;
-            margin-right: 5px;
-        }
-
-        .status-disconnected {
-            background-color: #dc3545;
-        }
-
-        .status-connected {
-            background-color: #28a745;
-        }
-
-        .toast-container {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 1050;
-        }
-
-        .input-group-text {
-            background-color: #6c757d;
-            color: white;
-            border: none;
-        }
-
-        .btn-primary {
-            background-color: #5a6268;
-            border-color: #5a6268;
-        }
-
-        .btn-primary:hover {
-            background-color: #4e555b;
-            border-color: #4e555b;
-        }
-
-        .file-info {
-            font-size: 12px;
-            color: #666;
-            margin-top: 5px;
-        }
-
-        .error-text {
-            color: #dc3545;
-            font-size: 12px;
-            margin-top: 5px;
-        }
-
-        .bg-preview {
-            width: 100px;
-            height: 60px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-            background-size: cover;
-            background-position: center;
-            display: none;
-            margin-top: 10px;
-        }
-    </style>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 </head>
 
-<body>
-    <div class="container">
-        <div class="row justify-content-center">
-            <div class="col-md-8">
-                <div class="card">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <h4 class="mb-0">Setup EchoKit via Bluetooth</h4>
-                        <div>
-                            <span class="status-indicator status-disconnected" id="statusIndicator"></span>
-                            <span id="connectionStatus">Disconnected</span>
+<body class="bg-base-200 min-h-screen py-8 bg-cover bg-center bg-no-repeat bg-fixed">
+    <div class="container mx-auto px-4 max-w-4xl">
+        <div class="card bg-base-100 shadow-xl">
+            <div class="card-body">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="card-title text-2xl">Setup EchoKit via Bluetooth</h2>
+                    <div class="flex items-center gap-2">
+                        <span class="badge badge-error" id="statusIndicator">●</span>
+                        <span id="connectionStatus">Disconnected</span>
+                    </div>
+                </div>
+
+                <button class="btn btn-primary w-full mb-4" id="connectButton">
+                    Connect to EchoKit
+                </button>
+
+                <div id="controlPanel" class="hidden space-y-4">
+                    <div class="flex gap-2">
+                        <button class="btn btn-outline flex-1" id="loadAllButton">
+                            🔄 Load Configuration
+                        </button>
+                        <button class="btn btn-primary flex-1" id="saveAllButton" disabled>
+                            💾 Save Changes
+                        </button>
+                        <button class="btn btn-warning" id="resetButton">
+                            🔄 Reset
+                        </button>
+                    </div>
+
+                    <div class="card bg-base-100 border border-base-300">
+                        <div class="card-body">
+                            <h3 class="card-title text-lg" id="ssidTitle">WiFi SSID</h3>
+                            <label class="form-control">
+                                <div class="label">
+                                    <span class="label-text">SSID</span>
+                                </div>
+                                <input type="text" id="ssidInput" placeholder="WiFi network name SSID"
+                                    class="input input-bordered w-full">
+                            </label>
                         </div>
                     </div>
-                    <div class="card-body">
-                        <div class="d-grid gap-2 mb-4">
-                            <button class="btn btn-primary" id="connectButton">
-                                <i class="bi bi-bluetooth"></i> Connect to EchoKit
-                            </button>
+
+                    <div class="card bg-base-100 border border-base-300">
+                        <div class="card-body">
+                            <h3 class="card-title text-lg" id="passTitle">WiFi Password</h3>
+                            <label class="form-control">
+                                <div class="label">
+                                    <span class="label-text">Password</span>
+                                </div>
+                                <input type="password" id="passInput" placeholder="WiFi Password"
+                                    class="input input-bordered w-full">
+                            </label>
                         </div>
+                    </div>
 
-                        <div id="controlPanel" style="display: none;">
-                            <div class="card mb-3">
-                                <div class="card-header">
-                                    <h5 class="mb-0">WiFi SSID</h5>
+                    <div class="card bg-base-100 border border-base-300">
+                        <div class="card-body">
+                            <h3 class="card-title text-lg" id="urlTitle">EchoKit Server</h3>
+                            <label class="form-control">
+                                <div class="label">
+                                    <span class="label-text">WebSocket URL</span>
                                 </div>
-                                <div class="card-body">
-                                    <div class="input-group mb-3">
-                                        <span class="input-group-text">SSID</span>
-                                        <input type="text" class="form-control" id="ssidInput"
-                                            placeholder="WiFi network name SSID">
-                                    </div>
-                                    <div class="d-flex justify-content-between">
-                                        <button class="btn btn-primary" id="readSsidButton">
-                                            <i class="bi bi-arrow-down-circle"></i> Read
-                                        </button>
-                                        <button class="btn btn-primary" id="writeSsidButton">
-                                            <i class="bi bi-arrow-up-circle"></i> Write
-                                        </button>
-                                    </div>
+                                <input type="text" id="serverUrlInput" placeholder="EchoKit server WebSocket URL"
+                                    class="input input-bordered w-full">
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="card bg-base-100 border border-base-300">
+                        <div class="card-body">
+                            <h3 class="card-title text-lg">Background Image</h3>
+                            <div class="form-control mb-4">
+                                <label class="label">
+                                    <span class="label-text">Select a background image (GIF)</span>
+                                </label>
+                                <input type="file" class="file-input file-input-bordered w-full" id="backgroundImage"
+                                    accept=".gif" onchange="validateAndPreviewFile(this)">
+                                <label class="label">
+                                    <span class="label-text-alt">Must be a GIF file, max 1MB</span>
+                                </label>
+                                <div id="fileError" class="text-error text-sm"></div>
+                                <div id="bgPreview"
+                                    class="hidden mt-2 w-24 h-16 rounded border border-base-300 bg-cover bg-center">
                                 </div>
                             </div>
-
-                            <div class="card mb-3">
-                                <div class="card-header">
-                                    <h5 class="mb-0">WiFi Password</h5>
-                                </div>
-                                <div class="card-body">
-                                    <div class="input-group mb-3">
-                                        <span class="input-group-text">Password</span>
-                                        <input type="password" class="form-control" id="passInput"
-                                            placeholder="WiFi Password">
-                                    </div>
-                                    <div class="d-flex justify-content-between">
-                                        <button class="btn btn-primary" id="readPassButton">
-                                            <i class="bi bi-arrow-down-circle"></i> Read
-                                        </button>
-                                        <button class="btn btn-primary" id="writePassButton">
-                                            <i class="bi bi-arrow-up-circle"></i> Write
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="card mb-3">
-                                <div class="card-header">
-                                    <h5 class="mb-0">EchoKit server</h5>
-                                </div>
-                                <div class="card-body">
-                                    <div class="input-group mb-3">
-                                        <span class="input-group-text">WebSocket URL</span>
-                                        <input type="text" class="form-control" id="serverUrlInput"
-                                            placeholder="EchoKit server WebSocket URL">
-                                    </div>
-                                    <div class="d-flex justify-content-between">
-                                        <button class="btn btn-primary" id="readServerUrlButton">
-                                            <i class="bi bi-arrow-down-circle"></i> Read
-                                        </button>
-                                        <button class="btn btn-primary" id="writeServerUrlButton">
-                                            <i class="bi bi-arrow-up-circle"></i> Write
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="card">
-                                <div class="card-header">
-                                    <h5 class="mb-0">Background image</h5>
-                                </div>
-                                <div class="card-body">
-                                    <div class="mb-3">
-                                        <label for="backgroundImage" class="form-label">Select a background image
-                                            (GIF)</label>
-                                        <input type="file" class="form-control" id="backgroundImage" accept=".gif"
-                                            onchange="validateAndPreviewFile(this)">
-                                        <div class="file-info">Must be a GIF file, max 1MB</div>
-                                        <div id="fileError" class="error-text"></div>
-                                        <div id="bgPreview" class="bg-preview"></div>
-                                    </div>
-                                    <div class="d-flex justify-content-between">
-                                        <button class="btn btn-primary" id="writeBgButton" disabled>
-                                            <i class="bi bi-arrow-up-circle"></i> Set background
-                                        </button>
-                                        <button class="btn btn-secondary" id="clearBgButton">
-                                            <i class="bi bi-x-circle"></i> Clear background
-                                        </button>
-                                    </div>
-                                </div>
+                            <div class="flex gap-2">
+                                <button class="btn btn-primary flex-1" id="writeBgButton" disabled>Set
+                                    Background</button>
+                                <button class="btn btn-outline flex-1" id="clearBgButton">Clear Background</button>
                             </div>
                         </div>
                     </div>
@@ -208,20 +106,13 @@
         </div>
     </div>
 
-    <!-- messages -->
-    <div class="toast-container">
-        <div class="toast" role="alert" aria-live="assertive" aria-atomic="true" id="notificationToast">
-            <div class="toast-header">
-                <strong class="me-auto" id="toastTitle">Message</strong>
-                <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
-            </div>
-            <div class="toast-body" id="toastMessage">
-                Message content
-            </div>
+    <!-- Notification toast -->
+    <div class="toast toast-top toast-end z-50" id="toastContainer">
+        <div class="alert" id="notificationToast" style="display: none;">
+            <span id="toastMessage">Message content</span>
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         // UUIDs
         const SERVICE_ID = "623fa3e2-631b-4f8f-a6e7-a7b09c03e7e0";
@@ -229,6 +120,7 @@
         const PASS_ID = "a987ab18-a940-421a-a1d7-b94ee22bccbe";
         const SERVER_URL_ID = "cef520a9-bcb5-4fc6-87f7-82804eee2b20";
         const BACKGROUND_IMAGE_ID = "d1f3b2c4-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
+        const RESET_ID = "f0e1d2c3-b4a5-6789-0abc-def123456789";
 
         // global variables
         let device = null;
@@ -243,46 +135,77 @@
         const controlPanel = document.getElementById('controlPanel');
         const statusIndicator = document.getElementById('statusIndicator');
         const connectionStatus = document.getElementById('connectionStatus');
+        const loadAllButton = document.getElementById('loadAllButton');
+        const saveAllButton = document.getElementById('saveAllButton');
+        const resetButton = document.getElementById('resetButton');
         const ssidInput = document.getElementById('ssidInput');
         const passInput = document.getElementById('passInput');
         const serverUrlInput = document.getElementById('serverUrlInput');
+        const ssidTitle = document.getElementById('ssidTitle');
+        const passTitle = document.getElementById('passTitle');
+        const urlTitle = document.getElementById('urlTitle');
         const backgroundImage = document.getElementById('backgroundImage');
         const bgPreview = document.getElementById('bgPreview');
         const fileError = document.getElementById('fileError');
-        const readSsidButton = document.getElementById('readSsidButton');
-        const writeSsidButton = document.getElementById('writeSsidButton');
-        const readPassButton = document.getElementById('readPassButton');
-        const writePassButton = document.getElementById('writePassButton');
-        const readServerUrlButton = document.getElementById('readServerUrlButton');
-        const writeServerUrlButton = document.getElementById('writeServerUrlButton');
-
         const writeBgButton = document.getElementById('writeBgButton');
         const clearBgButton = document.getElementById('clearBgButton');
         const notificationToast = document.getElementById('notificationToast');
-        const toastTitle = document.getElementById('toastTitle');
         const toastMessage = document.getElementById('toastMessage');
 
-        // init Toast
-        toast = new bootstrap.Toast(notificationToast);
+        // Track modified fields
+        const modifiedFields = {
+            ssid: false,
+            pass: false,
+            url: false
+        };
+
+        // Mark field as modified
+        function markFieldAsModified(fieldName, titleElement) {
+            modifiedFields[fieldName] = true;
+            if (!titleElement.textContent.endsWith(' *')) {
+                titleElement.textContent += ' *';
+            }
+            updateSaveButtonState();
+        }
+
+        // Clear field modification mark
+        function clearFieldModification(fieldName, titleElement) {
+            modifiedFields[fieldName] = false;
+            titleElement.textContent = titleElement.textContent.replace(' *', '');
+            updateSaveButtonState();
+        }
+
+        // Update save button state
+        function updateSaveButtonState() {
+            const hasModifications = Object.values(modifiedFields).some(modified => modified);
+            saveAllButton.disabled = !hasModifications;
+        }
 
         // display message
         function showNotification(title, message, isError = false) {
-            toastTitle.textContent = title;
-            toastMessage.textContent = message;
-            notificationToast.classList.remove('bg-danger', 'text-white');
+            toastMessage.textContent = `${title}: ${message}`;
+            notificationToast.classList.remove('alert-success', 'alert-error', 'alert-info');
 
             if (isError) {
-                notificationToast.classList.add('bg-danger', 'text-white');
+                notificationToast.classList.add('alert-error');
+            } else if (title === 'Message') {
+                notificationToast.classList.add('alert-info');
+            } else {
+                notificationToast.classList.add('alert-success');
             }
 
-            toast.show();
+            notificationToast.style.display = 'flex';
+
+            setTimeout(() => {
+                notificationToast.style.display = 'none';
+            }, 3000);
         }
 
         // validate and preview
         function validateAndPreviewFile(input) {
             const file = input.files[0];
             fileError.textContent = '';
-            bgPreview.style.display = 'none';
+            bgPreview.classList.add('hidden');
             writeBgButton.disabled = true;
             selectedBackgroundFile = null;
 
@@ -306,7 +229,7 @@
                 const reader = new FileReader();
                 reader.onload = function (e) {
                     bgPreview.style.backgroundImage = `url(${e.target.result})`;
-                    bgPreview.style.display = 'block';
+                    bgPreview.classList.remove('hidden');
                     selectedBackgroundFile = file;
                     writeBgButton.disabled = false;
                 };
@@ -323,7 +246,6 @@
         // clear background image
         function clearBackgroundImage() {
             document.body.style.backgroundImage = '';
-            document.body.style.backgroundColor = '#f8f9fa';
         }
 
         // connect
@@ -344,13 +266,16 @@
                 updateConnectionStatus();
 
                 // display the main UI
-                controlPanel.style.display = 'block';
-                connectButton.innerHTML = '<i class="bi bi-bluetooth"></i> Disconnect';
+                controlPanel.classList.remove('hidden');
+                connectButton.textContent = 'Disconnect';
 
                 // Process the disconnect event
                 device.addEventListener('gattserverdisconnected', handleDisconnection);
 
                 showNotification('Success', 'Connected to EchoKit device');
+
+                // Auto-load all configuration
+                await loadAllConfiguration();
             } catch (error) {
                 console.error('Connection error:', error);
                 showNotification('Error', 'Connection error: ' + error.message, true);
@@ -374,8 +299,8 @@
         function handleDisconnection() {
             isConnected = false;
             updateConnectionStatus();
-            controlPanel.style.display = 'none';
-            connectButton.innerHTML = '<i class="bi bi-bluetooth"></i> Connect EchoKit';
+            controlPanel.classList.add('hidden');
+            connectButton.textContent = 'Connect to EchoKit';
             device = null;
             server = null;
             service = null;
@@ -385,12 +310,12 @@
         // Update the UI
         function updateConnectionStatus() {
             if (isConnected) {
-                statusIndicator.classList.remove('status-disconnected');
-                statusIndicator.classList.add('status-connected');
+                statusIndicator.classList.remove('badge-error');
+                statusIndicator.classList.add('badge-success');
                 connectionStatus.textContent = 'Connected';
             } else {
-                statusIndicator.classList.remove('status-connected');
-                statusIndicator.classList.add('status-disconnected');
+                statusIndicator.classList.remove('badge-success');
+                statusIndicator.classList.add('badge-error');
                 connectionStatus.textContent = 'Disconnected';
             }
         }
@@ -399,7 +324,7 @@
         async function readCharacteristic(characteristicId, inputElement) {
             if (!isConnected || !service) {
                 showNotification('Error', 'EchoKit is not connected', true);
-                return;
+                return false;
             }
 
             try {
@@ -410,18 +335,114 @@
                 const stringValue = decoder.decode(value);
 
                 inputElement.value = stringValue;
-                showNotification('Success', 'Read data');
+                return true;
             } catch (error) {
                 console.error('Read error: ', error);
                 showNotification('Error', 'Read error: ' + error.message, true);
+                return false;
+            }
+        }
+
+        // Load all configuration
+        async function loadAllConfiguration() {
+            if (!isConnected || !service) {
+                showNotification('Error', 'EchoKit is not connected', true);
+                return;
+            }
+
+            loadAllButton.disabled = true;
+            loadAllButton.textContent = 'Loading...';
+
+            try {
+                await readCharacteristic(SSID_ID, ssidInput);
+                await readCharacteristic(PASS_ID, passInput);
+                await readCharacteristic(SERVER_URL_ID, serverUrlInput);
+
+                // Clear all modification marks
+                clearFieldModification('ssid', ssidTitle);
+                clearFieldModification('pass', passTitle);
+                clearFieldModification('url', urlTitle);
+
+                showNotification('Success', 'All configuration loaded');
+            } catch (error) {
+                console.error('Load configuration failed:', error);
+                showNotification('Error', 'Load configuration failed', true);
+            } finally {
+                loadAllButton.disabled = false;
+                loadAllButton.textContent = '🔄 Load Configuration';
+            }
+        }
+
+        // Save all modifications
+        async function saveAllModifications() {
+            if (!isConnected || !service) {
+                showNotification('Error', 'EchoKit is not connected', true);
+                return;
+            }
+
+            saveAllButton.disabled = true;
+            saveAllButton.textContent = 'Saving...';
+
+            try {
+                let savedCount = 0;
+
+                if (modifiedFields.ssid) {
+                    await writeCharacteristic(SSID_ID, ssidInput.value);
+                    clearFieldModification('ssid', ssidTitle);
+                    savedCount++;
+                }
+
+                if (modifiedFields.pass) {
+                    await writeCharacteristic(PASS_ID, passInput.value);
+                    clearFieldModification('pass', passTitle);
+                    savedCount++;
+                }
+
+                if (modifiedFields.url) {
+                    await writeCharacteristic(SERVER_URL_ID, serverUrlInput.value);
+                    clearFieldModification('url', urlTitle);
+                    savedCount++;
+                }
+
+                showNotification('Success', `Saved ${savedCount} changes`);
+            } catch (error) {
+                console.error('Save modifications failed:', error);
+                showNotification('Error', 'Save modifications failed', true);
+            } finally {
+                saveAllButton.disabled = true;
+                saveAllButton.textContent = '💾 Save Changes';
+            }
+        }
+
+        // Reset device
+        async function resetDevice() {
+            if (!isConnected || !service) {
+                showNotification('Error', 'EchoKit is not connected', true);
+                return;
+            }
+
+            resetButton.disabled = true;
+            resetButton.textContent = 'Resetting...';
+
+            try {
+                const characteristic = await service.getCharacteristic(RESET_ID);
+                const encoder = new TextEncoder();
+                const data = encoder.encode('RESET');
+                await characteristic.writeValue(data);
+                showNotification('Success', 'Device reset command sent');
+            } catch (error) {
+                console.error('Reset failed:', error);
+                showNotification('Error', 'Device does not support this operation, please reset by pressing k0 on the device', true);
+            } finally {
+                resetButton.disabled = false;
+                resetButton.textContent = '🔄 Reset';
             }
         }
 
         // Writes Characteristic
         async function writeCharacteristic(characteristicId, inputValue) {
             if (!isConnected || !service) {
-                showNotification('Error', 'EchoKit is not connected', true);
-                return;
+                throw new Error('EchoKit is not connected');
             }
 
             inputValue = inputValue || '';
@@ -431,10 +452,9 @@
                 const encoder = new TextEncoder();
                 const data = encoder.encode(inputValue);
                 await characteristic.writeValue(data);
-                showNotification('Success', 'Wrote data');
             } catch (error) {
-                console.error('写入失败:', error);
-                showNotification('Error', 'Write error: ' + error.message, true);
+                console.error('Write error:', error);
+                throw error;
             }
         }
 
@@ -461,7 +481,7 @@
 
                 // prevent double clicking
                 writeBgButton.disabled = true;
-                writeBgButton.innerHTML = '<i class="bi bi-hourglass-split"></i> Sending data ...';
+                writeBgButton.textContent = 'Sending data ...';
 
                 for (let i = 0; i < totalChunks; i++) {
                     const start = i * chunkSize;
@@ -474,7 +494,7 @@
                     await characteristic.writeValue(packet);
 
                     const progress = Math.round(((i + 1) / totalChunks) * 100);
-                    writeBgButton.innerHTML = `<i class="bi bi-hourglass-split"></i> In progress ... ${progress}%`;
+                    writeBgButton.textContent = `In progress ... ${progress}%`;
 
                     await new Promise(resolve => setTimeout(resolve, 50));
                 }
@@ -488,16 +508,16 @@
 
                 // reset the button
                 writeBgButton.disabled = false;
-                writeBgButton.innerHTML = '<i class="bi bi-arrow-up-circle"></i> Set background';
+                writeBgButton.textContent = 'Set Background';
 
-                showNotification('Success', `The background image is uploaded to the EchoKit device.`);
+                showNotification('Success', `Background image uploaded successfully! Sent ${totalChunks} packets, total size ${Math.round(totalSize / 1024)}KB`);
 
             } catch (error) {
                 console.error('Background image error: ', error);
 
                 // reset the button
                 writeBgButton.disabled = false;
-                writeBgButton.innerHTML = '<i class="bi bi-arrow-up-circle"></i> Set background';
+                writeBgButton.textContent = 'Set Background';
 
                 showNotification('Error', 'Background image error: ' + error.message, true);
             }
@@ -511,28 +531,29 @@
             }
         });
 
-        readSsidButton.addEventListener('click', () => {
-            readCharacteristic(SSID_ID, ssidInput);
+        loadAllButton.addEventListener('click', () => {
+            loadAllConfiguration();
         });
 
-        writeSsidButton.addEventListener('click', () => {
-            writeCharacteristic(SSID_ID, ssidInput.value);
+        saveAllButton.addEventListener('click', () => {
+            saveAllModifications();
         });
 
-        readPassButton.addEventListener('click', () => {
-            readCharacteristic(PASS_ID, passInput);
+        resetButton.addEventListener('click', () => {
+            resetDevice();
         });
 
-        writePassButton.addEventListener('click', () => {
-            writeCharacteristic(PASS_ID, passInput.value);
+        // Listen for input changes
+        ssidInput.addEventListener('input', () => {
+            markFieldAsModified('ssid', ssidTitle);
         });
 
-        readServerUrlButton.addEventListener('click', () => {
-            readCharacteristic(SERVER_URL_ID, serverUrlInput);
+        passInput.addEventListener('input', () => {
+            markFieldAsModified('pass', passTitle);
         });
 
-        writeServerUrlButton.addEventListener('click', () => {
-            writeCharacteristic(SERVER_URL_ID, serverUrlInput.value);
+        serverUrlInput.addEventListener('input', () => {
+            markFieldAsModified('url', urlTitle);
         });
 
         writeBgButton.addEventListener('click', () => {
@@ -541,7 +562,7 @@
 
         clearBgButton.addEventListener('click', () => {
             clearBackgroundImage();
-            showNotification('Message', 'Cleared background image');
+            showNotification('Message', 'Background image cleared');
         });
 
         if (!navigator.bluetooth) {
