@@ -28,9 +28,13 @@ jobs:
           - command: build
             args: --release
           - command: build
+            args: --features mfrc522 --release
+          - command: build
             args: --features cube2 --release
           - command: build
-            args: --no-default-features --features box --release
+            args: --features cube2,mfrc522 --release
+          - command: build
+            args: --features box --release
           - command: fmt
             args: --all -- --check --color always
           # - command: clippy
