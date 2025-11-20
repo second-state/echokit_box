@@ -8,13 +8,15 @@ rust-version = "1.77"
 
 [[bin]]
 name = "echokit"
-harness = false             # do not use the built in cargo test harness -> resolve rust-analyzer errors
+# do not use the built in cargo test harness => resolve rust-analyzer errors
+harness = false
 
 [profile.release]
 opt-level = "s"
 
 [profile.dev]
-debug = true    # Symbols are nice and they don't increase the size on Flash
+# Symbols are nice and they don't increase the size on Flash
+debug = true
 opt-level = "z"
 
 [features]
@@ -73,7 +75,7 @@ tokio-websockets = { version = "0.8", features = [
 bytes = "1.10.0"
 
 qrcode = { version = "0.14.1", default-features = false, features = [] }
-ndef =  {version="0.4.0", features=["alloc"], optional = true }
+ndef = { version = "0.4.0", features = ["alloc"], optional = true }
 
 [build-dependencies]
 embuild = "0.33"
