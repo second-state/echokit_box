@@ -152,7 +152,7 @@ impl DownloadMetrics {
     }
 }
 
-const SPEED_LIMIT: f64 = 1.5;
+const SPEED_LIMIT: f64 = 1.0;
 const INTERNAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
 const NORMAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
@@ -186,7 +186,7 @@ pub async fn main_work<'d>(
     let mut metrics = DownloadMetrics::new();
     let mut need_compute = true;
     let mut start_audio = false;
-    let mut speed = 1.5;
+    let mut speed = 0.5;
     let mut vol = 3u8;
 
     let mut hello_wav = Vec::with_capacity(1024 * 30);
