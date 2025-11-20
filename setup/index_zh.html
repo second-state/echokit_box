@@ -25,16 +25,13 @@
                     连接设备
                 </button>
 
-                <div id="controlPanel" class="hidden space-y-4">
+                <div id="controlPanel" class="space-y-4">
                     <div class="flex gap-2">
                         <button class="btn btn-outline flex-1" id="loadAllButton">
                             🔄 加载配置
                         </button>
                         <button class="btn btn-primary flex-1" id="saveAllButton" disabled>
                             💾 保存修改
-                        </button>
-                        <button class="btn btn-warning" id="resetButton">
-                            🔄 重启
                         </button>
                     </div>
 
@@ -109,6 +106,19 @@
         </div>
     </div>
 
+    <!-- 设备重启不支持的模态对话框 -->
+    <dialog id="resetNotSupportedModal" class="modal">
+        <div class="modal-box">
+            <h3 class="font-bold text-lg">⚠️ 需要重启设备</h3>
+            <p class="py-4">设备不支持此操作，请通过按设备上的 k0 来重启</p>
+            <div class="modal-action">
+                <form method="dialog">
+                    <button class="btn btn-primary">确定</button>
+                </form>
+            </div>
+        </div>
+    </dialog>
+
     <script>
         // 定义UUID
         const SERVICE_ID = "623fa3e2-631b-4f8f-a6e7-a7b09c03e7e0";
@@ -133,7 +143,6 @@
         const connectionStatus = document.getElementById('connectionStatus');
         const loadAllButton = document.getElementById('loadAllButton');
         const saveAllButton = document.getElementById('saveAllButton');
-        const resetButton = document.getElementById('resetButton');
         const ssidInput = document.getElementById('ssidInput');
         const passInput = document.getElementById('passInput');
         const serverUrlInput = document.getElementById('serverUrlInput');
@@ -147,6 +156,7 @@
         const clearBgButton = document.getElementById('clearBgButton');
         const notificationToast = document.getElementById('notificationToast');
         const toastMessage = document.getElementById('toastMessage');
+        const resetNotSupportedModal = document.getElementById('resetNotSupportedModal');
 
         // 跟踪哪些字段被修改
         const modifiedFields = {
@@ -260,10 +270,9 @@
                 // 更新UI状态
                 isConnected = true;
                 updateConnectionStatus();
-
-                // 显示控制面板
-                controlPanel.classList.remove('hidden');
                 connectButton.textContent = '断开连接';
+                connectButton.classList.remove('btn-primary');
+                connectButton.classList.add('btn-error');
 
                 // 设备断开连接时的处理
                 device.addEventListener('gattserverdisconnected', handleDisconnection);
@@ -295,8 +304,9 @@
         function handleDisconnection() {
             isConnected = false;
             updateConnectionStatus();
-            controlPanel.classList.add('hidden');
             connectButton.textContent = '连接设备';
+            connectButton.classList.remove('btn-error');
+            connectButton.classList.add('btn-primary');
             device = null;
             server = null;
             service = null;
@@ -309,11 +319,37 @@
                 statusIndicator.classList.remove('badge-error');
                 statusIndicator.classList.add('badge-success');
                 connectionStatus.textContent = '已连接';
+                enableControls();
             } else {
                 statusIndicator.classList.remove('badge-success');
                 statusIndicator.classList.add('badge-error');
                 connectionStatus.textContent = '未连接';
+                disableControls();
             }
+        }
+
+        // 启用所有控件
+        function enableControls() {
+            loadAllButton.disabled = false;
+            ssidInput.disabled = false;
+            passInput.disabled = false;
+            serverUrlInput.disabled = false;
+            backgroundImage.disabled = false;
+            clearBgButton.disabled = false;
+            controlPanel.classList.remove('opacity-50', 'pointer-events-none');
+        }
+
+        // 禁用所有控件
+        function disableControls() {
+            loadAllButton.disabled = true;
+            saveAllButton.disabled = true;
+            ssidInput.disabled = true;
+            passInput.disabled = true;
+            serverUrlInput.disabled = true;
+            backgroundImage.disabled = true;
+            writeBgButton.disabled = true;
+            clearBgButton.disabled = true;
+            controlPanel.classList.add('opacity-50', 'pointer-events-none');
         }
 
         // 读取Characteristic值
@@ -403,6 +439,19 @@
                 }
 
                 showNotification('成功', `已保存 ${savedCount} 项修改`);
+
+                // 保存后尝试重启设备
+                try {
+                    saveAllButton.textContent = '重启中...';
+                    const characteristic = await service.getCharacteristic(RESET_ID);
+                    const encoder = new TextEncoder();
+                    const data = encoder.encode('RESET');
+                    await characteristic.writeValue(data);
+                    showNotification('成功', '设备重启指令已发送');
+                } catch (resetError) {
+                    console.error('重启失败:', resetError);
+                    resetNotSupportedModal.showModal();
+                }
             } catch (error) {
                 console.error('保存修改失败:', error);
                 showNotification('错误', '保存修改失败', true);
@@ -419,9 +468,6 @@
                 return;
             }
 
-            resetButton.disabled = true;
-            resetButton.textContent = '重启中...';
-
             try {
                 const characteristic = await service.getCharacteristic(RESET_ID);
                 const encoder = new TextEncoder();
@@ -430,10 +476,7 @@
                 showNotification('成功', '设备重启指令已发送');
             } catch (error) {
                 console.error('重启失败:', error);
-                showNotification('错误', '设备不支持此操作，请通过按设备上的 k0 来重启', true);
-            } finally {
-                resetButton.disabled = false;
-                resetButton.textContent = '🔄 重启';
+                resetNotSupportedModal.showModal();
             }
         }
 
@@ -547,10 +590,6 @@
             saveAllModifications();
         });
 
-        resetButton.addEventListener('click', () => {
-            resetDevice();
-        });
-
         // 监听输入框变化
         ssidInput.addEventListener('input', () => {
             markFieldAsModified('ssid', ssidTitle);
@@ -578,6 +617,9 @@
             showNotification('错误', '您的浏览器不支持Web Bluetooth API，请使用Chrome或Edge浏览器', true);
             connectButton.disabled = true;
         }
+
+        // 初始化时禁用所有控件
+        disableControls();
     </script>
 </body>
 

@@ -25,16 +25,13 @@
                     Connect to EchoKit
                 </button>
 
-                <div id="controlPanel" class="hidden space-y-4">
+                <div id="controlPanel" class="space-y-4">
                     <div class="flex gap-2">
                         <button class="btn btn-outline flex-1" id="loadAllButton">
                             🔄 Load Configuration
                         </button>
                         <button class="btn btn-primary flex-1" id="saveAllButton" disabled>
                             💾 Save Changes
-                        </button>
-                        <button class="btn btn-warning" id="resetButton">
-                            🔄 Reset
                         </button>
                     </div>
 
@@ -113,6 +110,19 @@
         </div>
     </div>
 
+    <!-- Reset not supported modal dialog -->
+    <dialog id="resetNotSupportedModal" class="modal">
+        <div class="modal-box">
+            <h3 class="font-bold text-lg">⚠️ Device Reset Required</h3>
+            <p class="py-4">Device does not support this operation, please reset by pressing k0 on the device</p>
+            <div class="modal-action">
+                <form method="dialog">
+                    <button class="btn btn-primary">OK</button>
+                </form>
+            </div>
+        </div>
+    </dialog>
+
     <script>
         // UUIDs
         const SERVICE_ID = "623fa3e2-631b-4f8f-a6e7-a7b09c03e7e0";
@@ -137,7 +147,6 @@
         const connectionStatus = document.getElementById('connectionStatus');
         const loadAllButton = document.getElementById('loadAllButton');
         const saveAllButton = document.getElementById('saveAllButton');
-        const resetButton = document.getElementById('resetButton');
         const ssidInput = document.getElementById('ssidInput');
         const passInput = document.getElementById('passInput');
         const serverUrlInput = document.getElementById('serverUrlInput');
@@ -151,6 +160,7 @@
         const clearBgButton = document.getElementById('clearBgButton');
         const notificationToast = document.getElementById('notificationToast');
         const toastMessage = document.getElementById('toastMessage');
+        const resetNotSupportedModal = document.getElementById('resetNotSupportedModal');
 
         // Track modified fields
         const modifiedFields = {
@@ -264,10 +274,9 @@
                 // Update UI
                 isConnected = true;
                 updateConnectionStatus();
-
-                // display the main UI
-                controlPanel.classList.remove('hidden');
                 connectButton.textContent = 'Disconnect';
+                connectButton.classList.remove('btn-primary');
+                connectButton.classList.add('btn-error');
 
                 // Process the disconnect event
                 device.addEventListener('gattserverdisconnected', handleDisconnection);
@@ -299,8 +308,9 @@
         function handleDisconnection() {
             isConnected = false;
             updateConnectionStatus();
-            controlPanel.classList.add('hidden');
             connectButton.textContent = 'Connect to EchoKit';
+            connectButton.classList.remove('btn-error');
+            connectButton.classList.add('btn-primary');
             device = null;
             server = null;
             service = null;
@@ -313,11 +323,37 @@
                 statusIndicator.classList.remove('badge-error');
                 statusIndicator.classList.add('badge-success');
                 connectionStatus.textContent = 'Connected';
+                enableControls();
             } else {
                 statusIndicator.classList.remove('badge-success');
                 statusIndicator.classList.add('badge-error');
                 connectionStatus.textContent = 'Disconnected';
+                disableControls();
             }
+        }
+
+        // Enable all controls
+        function enableControls() {
+            loadAllButton.disabled = false;
+            ssidInput.disabled = false;
+            passInput.disabled = false;
+            serverUrlInput.disabled = false;
+            backgroundImage.disabled = false;
+            clearBgButton.disabled = false;
+            controlPanel.classList.remove('opacity-50', 'pointer-events-none');
+        }
+
+        // Disable all controls
+        function disableControls() {
+            loadAllButton.disabled = true;
+            saveAllButton.disabled = true;
+            ssidInput.disabled = true;
+            passInput.disabled = true;
+            serverUrlInput.disabled = true;
+            backgroundImage.disabled = true;
+            writeBgButton.disabled = true;
+            clearBgButton.disabled = true;
+            controlPanel.classList.add('opacity-50', 'pointer-events-none');
         }
 
         // Reads Characteristic
@@ -405,6 +441,19 @@
                 }
 
                 showNotification('Success', `Saved ${savedCount} changes`);
+
+                // Try to reset device after saving
+                try {
+                    saveAllButton.textContent = 'Resetting...';
+                    const characteristic = await service.getCharacteristic(RESET_ID);
+                    const encoder = new TextEncoder();
+                    const data = encoder.encode('RESET');
+                    await characteristic.writeValue(data);
+                    showNotification('Success', 'Device reset command sent');
+                } catch (resetError) {
+                    console.error('Reset failed:', resetError);
+                    resetNotSupportedModal.showModal();
+                }
             } catch (error) {
                 console.error('Save modifications failed:', error);
                 showNotification('Error', 'Save modifications failed', true);
@@ -432,7 +481,7 @@
                 showNotification('Success', 'Device reset command sent');
             } catch (error) {
                 console.error('Reset failed:', error);
-                showNotification('Error', 'Device does not support this operation, please reset by pressing k0 on the device', true);
+                resetNotSupportedModal.showModal();
             } finally {
                 resetButton.disabled = false;
                 resetButton.textContent = '🔄 Reset';
@@ -539,10 +588,6 @@
             saveAllModifications();
         });
 
-        resetButton.addEventListener('click', () => {
-            resetDevice();
-        });
-
         // Listen for input changes
         ssidInput.addEventListener('input', () => {
             markFieldAsModified('ssid', ssidTitle);
@@ -569,6 +614,9 @@
             showNotification('Error', 'Your browser does not support the Web Bluetooth API. Please use Chrome or Edge', true);
             connectButton.disabled = true;
         }
+
+        // Initialize controls as disabled
+        disableControls();
     </script>
 </body>
 
