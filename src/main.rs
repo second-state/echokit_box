@@ -138,8 +138,10 @@ fn main() -> anyhow::Result<()> {
         let ble_addr = bt::bt(setting.clone(), evt_tx).unwrap();
         log_heap();
 
+        let version = env!("CARGO_PKG_VERSION");
+
         gui.state = "Please setup device by bt".to_string();
-        gui.text = format!("Goto https://echokit.dev/setup/ to set up the device.\nPress K0 to continue\nDevice Name: EchoKit-{}", ble_addr);
+        gui.text = format!("Goto https://echokit.dev/setup/ to set up the device.\nDevice Name: EchoKit-{}\nVersion: {}", ble_addr, version);
         gui.display_qrcode("https://echokit.dev/setup/").unwrap();
 
         #[cfg(feature = "boards")]
@@ -166,6 +168,7 @@ fn main() -> anyhow::Result<()> {
                     log::info!("Received event to enter setup");
                 }
             }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         });
 
         {
