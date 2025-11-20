@@ -200,16 +200,6 @@ macro_rules! start_hal {
         {
             todo!("MFRC522 initialization not implemented yet");
         }
-
-        #[cfg(not(feature = "mfrc522"))]
-        {
-            log::info!("MFRC522 feature not enabled, skipping RFID initialization");
-            $evt_tx
-                .blocking_send(crate::app::Event::ServerUrl(String::new()))
-                .unwrap_or_else(|e| {
-                    log::error!("Failed to send ServerUrl event: {:?}", e);
-                });
-        }
     }
     let _backlight = {
         let mut backlight = crate::boards::backlight_init($peripherals.pins.gpio13.into()).unwrap();

@@ -16,10 +16,11 @@ pub enum Event {
     MicAudioEnd,
     MicInterrupt(Vec<i16>),
     MicInterruptWaitTimeout,
+    #[cfg_attr(not(feature = "extra_server"), allow(unused))]
     ServerUrl(String),
 }
 
-#[allow(dead_code)]
+#[allow(unused)]
 impl Event {
     pub const IDLE: &'static str = "idle";
     pub const GAIA: &'static str = "gaia";

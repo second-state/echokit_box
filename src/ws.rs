@@ -148,6 +148,7 @@ impl Server {
         })
     }
 
+    #[allow(unused)]
     pub fn set_timeout(&mut self, timeout: std::time::Duration) {
         self.timeout = timeout;
     }

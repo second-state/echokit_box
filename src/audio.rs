@@ -90,6 +90,7 @@ impl AFE {
         }
     }
 
+    #[allow(unused)]
     fn feed(&self, data: &[u8]) -> i32 {
         let afe_handle = self.handle;
         let afe_data = self.data;

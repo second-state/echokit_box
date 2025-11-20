@@ -98,24 +98,27 @@ fn main() -> anyhow::Result<()> {
 
     log_heap();
 
-    gui.state = "Initializing...".to_string();
-    gui.text = "Wait Loading Server URL...".to_string();
-    gui.display_flush().unwrap();
+    #[cfg(feature = "extra_server")]
+    {
+        gui.state = "Initializing...".to_string();
+        gui.text = "Loading Server URL...".to_string();
+        gui.display_flush().unwrap();
 
-    while let Some(event) = evt_rx.blocking_recv() {
-        if let app::Event::ServerUrl(url) = event {
-            log::info!("Received ServerUrl event: {}", url);
-            if !url.is_empty() {
-                server_url = url;
+        while let Some(event) = evt_rx.blocking_recv() {
+            if let app::Event::ServerUrl(url) = event {
+                log::info!("Received ServerUrl event: {}", url);
+                if !url.is_empty() {
+                    server_url = url;
+                }
+                break;
             }
-            break;
         }
-    }
 
-    std::thread::sleep(std::time::Duration::from_millis(500));
-    gui.text = format!("Server URL: {}\nContinuing...", server_url);
-    gui.display_flush().unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(3000));
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        gui.text = format!("Server URL: {}\nContinuing...", server_url);
+        gui.display_flush().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(2000));
+    }
 
     let need_init = {
         button.is_low() || state == 1 || ssid.is_empty() || pass.is_empty() || server_url.is_empty()

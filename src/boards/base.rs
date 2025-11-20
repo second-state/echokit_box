@@ -204,15 +204,6 @@ macro_rules! start_hal {
                 $evt_tx.clone(),
             );
         }
-        #[cfg(not(feature = "mfrc522"))]
-        {
-            log::info!("MFRC522 feature not enabled, skipping RFID initialization");
-            $evt_tx
-                .blocking_send(crate::app::Event::ServerUrl(String::new()))
-                .unwrap_or_else(|e| {
-                    log::error!("Failed to send ServerUrl event: {:?}", e);
-                });
-        }
     }};
 }
 

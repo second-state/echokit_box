@@ -217,6 +217,7 @@ pub struct QrCanvas {
     width: u32,
     height: u32,
     dark_pixel: QrPixel,
+    #[allow(unused)]
     light_pixel: QrPixel,
     pixels: Vec<embedded_graphics::Pixel<ColorFormat>>,
 }

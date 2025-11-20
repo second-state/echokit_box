@@ -28,7 +28,8 @@ box = ["_no_default"]
 cube = ["_no_default"]
 cube2 = ["_no_default"]
 
-mfrc522 = ["ndef"]
+mfrc522 = ["ndef", "extra_server"]
+extra_server = []
 
 [dependencies]
 log = "0.4"
