@@ -125,8 +125,8 @@ void lcd_color_fill(uint16_t sx, uint16_t sy, uint16_t ex, uint16_t ey, uint16_t
     }
 
     /* 计算填充区域的宽度 */
-    uint16_t width = ex - sx + 1;
-    uint16_t height = ey - sy + 1;
+    uint16_t width = ex - sx;
+    uint16_t height = ey - sy;
     uint32_t buf_index = 0;
 
     uint16_t *buffer = heap_caps_malloc(width * sizeof(uint16_t), MALLOC_CAP_INTERNAL);

@@ -26,12 +26,12 @@ unsafe fn afe_init() -> (
     afe_config.vad_min_noise_ms = 500;
     // afe_config.vad_min_speech_ms = 300;
     afe_config.vad_mode = esp_sr::vad_mode_t_VAD_MODE_3;
-    afe_config.agc_init = true;
+    afe_config.agc_init = false;
     // afe_config.afe_linear_gain = 2.0;
     afe_config.aec_init = true;
     afe_config.aec_mode = esp_sr::aec_mode_t_AEC_MODE_VOIP_HIGH_PERF;
     // afe_config.aec_filter_length = 5;
-    afe_config.ns_init = true;
+    afe_config.ns_init = false;
     afe_config.wakenet_init = false;
     afe_config.memory_alloc_mode = esp_sr::afe_memory_alloc_mode_t_AFE_MEMORY_ALLOC_MORE_PSRAM;
 

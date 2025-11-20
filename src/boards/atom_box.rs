@@ -143,20 +143,15 @@ pub fn lcd_init(
 }
 
 pub fn flush_display(color_data: &[u8], x_start: i32, y_start: i32, x_end: i32, y_end: i32) -> i32 {
-    let panel = unsafe { std::mem::transmute(esp_idf_svc::sys::hal_driver::panel_handle) };
     unsafe {
-        let e = esp_idf_svc::sys::esp_lcd_panel_draw_bitmap(
-            panel,
-            x_start,
-            y_start,
-            x_end,
-            y_end,
-            color_data.as_ptr().cast(),
+        esp_idf_svc::sys::hal_driver::lcd_color_fill(
+            x_start as u16,
+            y_start as u16,
+            x_end as u16,
+            y_end as u16,
+            color_data.as_ptr() as _,
         );
-        if e != 0 {
-            log::warn!("flush_display error: {}", e);
-        }
-        e
+        0
     }
 }
 

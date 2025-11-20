@@ -65,7 +65,7 @@ async fn select_evt(
 
     tokio::select! {
         _ = timeout_f => {
-            log::info!("Event select timeout");
+            // log::info!("Event select timeout");
             timeout_event
         }
         Some(evt) = evt_rx.recv() => {
@@ -154,7 +154,7 @@ impl DownloadMetrics {
 
 const SPEED_LIMIT: f64 = 1.0;
 const INTERNAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
-const NORMAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+const NORMAL_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(500);
 
 pub async fn main_work<'d>(
     mut server: Server,
@@ -196,9 +196,16 @@ pub async fn main_work<'d>(
     let mut init_hello = false;
     let mut allow_interrupt = false;
     let mut timeout = NORMAL_TIMEOUT;
+    let mut idle_counter = 0u32;
 
     while let Some(evt) = select_evt(&mut evt_rx, &mut server, &notify, wait_notify, timeout).await
     {
+        if let Event::Event(Event::IDLE) = &evt {
+            idle_counter += 1;
+        } else {
+            idle_counter = 0;
+        }
+
         match evt {
             Event::Event(Event::GAIA | Event::K0) => {
                 log::info!("Received event: k0");
@@ -261,11 +268,18 @@ pub async fn main_work<'d>(
             }
             Event::Event(Event::YES | Event::K1) => {}
             Event::Event(Event::IDLE) => {
-                if state == State::Listening {
-                    state = State::Idle;
-                    gui.state = "Idle".to_string();
-                    gui.display_flush().unwrap();
-                    server.close().await?;
+                if NORMAL_TIMEOUT * idle_counter >= std::time::Duration::from_secs(300) {
+                    idle_counter = 0;
+                    log::info!("Idle for 5 minutes, going to Idle state");
+                    if state == State::Listening {
+                        state = State::Idle;
+                        gui.state = "Idle".to_string();
+                        gui.display_flush().unwrap();
+                        server.close().await?;
+                    }
+                } else {
+                    #[cfg(feature = "box")]
+                    let _ = gui.display_flush();
                 }
             }
             Event::Event(Event::NOTIFY) => {
