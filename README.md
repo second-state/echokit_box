@@ -21,7 +21,7 @@ The `K0` button is the main action button for the application. On the EchoKit de
 
 ## Quick start
 
-Flash the `echokit.bin` device image using the web-based [ESP Launchpad](https://espressif.github.io/esp-launchpad/?flashConfigURL=https://echokit.dev/firmware/echokit.toml) tool.
+Flash the device image using the web-based [ESP Launchpad](https://espressif.github.io/esp-launchpad/?flashConfigURL=https://echokit.dev/firmware/echokit.toml) tool.
 
 ## Install espflash
 
@@ -36,7 +36,7 @@ cargo install cargo-espflash espflash ldproxy
 Get a pre-compiled binary version of the firmware. The firmware binary file is `echokit`.
 
 ```
-curl -L -o echokit https://echokit.dev/firmware/echokit-boards
+curl -L -o echokit https://echokit.dev/firmware/echokit_boards
 ```
 
 To build the `echokit` firmware file from source, you need to make sure that you install the [OS-specific dependencies](https://docs.espressif.com/projects/rust/book/installation/std-requirements.html) and then [ESP toolchain for Rust](https://docs.espressif.com/projects/rust/book/installation/riscv-and-xtensa.html). You can then build from the source and find the binary firmware in `target/xtensa-esp32s3-espidf/release/`.
@@ -57,7 +57,7 @@ espflash save-image --chip esp32s3 --merge --flash-size 16mb target/xtensa-esp32
 If you have the fully integrared box device, you can use the following command to download a pre-built binary.
 
 ```
-curl -L -o echokit https://echokit.dev/firmware/echokit-box
+curl -L -o echokit https://echokit.dev/firmware/echokit_box
 ```
 
 To build it from the Rust source code. 
@@ -70,7 +70,7 @@ cargo build  --no-default-features --features box
 
 ## Flash the firmware
 
-Connect to your computer to the EchoKit device USB port labeled `TTL`. Allow the computer to accept connection from the device when prompted. 
+Connect to your computer to the EchoKit device USB port labeled `OTG`. Allow the computer to accept connection from the device when prompted. 
 
 > On many devices, there are two USB ports, but only the `SLAVE` port can take commands from another computer. You must connect to that `SLAVE` USB port. The detected USB serial port should be `JTAG`. IT CANNOT be `USB Single`.
 
