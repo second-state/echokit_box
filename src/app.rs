@@ -230,10 +230,13 @@ pub async fn main_work<'d>(
                 }
             }
             Event::Event(Event::K0_) => {
-                allow_interrupt = !allow_interrupt;
-                log::info!("Set allow_interrupt to {}", allow_interrupt);
-                gui.state = format!("Interrupt: {}", allow_interrupt);
-                gui.display_flush().unwrap();
+                #[cfg(feature = "voice_interrupt")]
+                {
+                    allow_interrupt = !allow_interrupt;
+                    log::info!("Set allow_interrupt to {}", allow_interrupt);
+                    gui.state = format!("Interrupt: {}", allow_interrupt);
+                    gui.display_flush().unwrap();
+                }
             }
             Event::Event(Event::VOL_UP) => {
                 vol += 1;
@@ -262,11 +265,11 @@ pub async fn main_work<'d>(
             Event::Event(Event::YES | Event::K1) => {}
             Event::Event(Event::IDLE) => {
                 log::info!("Received idle event");
-                    if state == State::Listening {
-                        state = State::Idle;
-                        gui.state = "Idle".to_string();
-                        gui.display_flush().unwrap();
-                        server.close().await?;
+                if state == State::Listening {
+                    state = State::Idle;
+                    gui.state = "Idle".to_string();
+                    gui.display_flush().unwrap();
+                    server.close().await?;
                 }
             }
             Event::Event(Event::NOTIFY) => {

@@ -33,6 +33,8 @@ cube2 = ["_no_default"]
 mfrc522 = ["ndef", "extra_server"]
 extra_server = []
 
+voice_interrupt = []
+
 [dependencies]
 log = "0.4"
 anyhow = "1.0"
