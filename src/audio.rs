@@ -448,7 +448,7 @@ fn audio_task_run(
     let mut allow_speech = false;
     let mut speech = false;
 
-    send_buffer.volume = 3;
+    send_buffer.volume = VOL_NUM.load(std::sync::atomic::Ordering::Relaxed) as i16;
 
     loop {
         if let Ok(event) = rx.try_recv() {
