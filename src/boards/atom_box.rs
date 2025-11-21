@@ -143,6 +143,10 @@ pub fn lcd_init(
 }
 
 pub fn flush_display(color_data: &[u8], x_start: i32, y_start: i32, x_end: i32, y_end: i32) -> i32 {
+    debug_assert_eq!(
+        x_end - x_start, DISPLAY_WIDTH as i32,
+        "x_end - x_start must be equal to DISPLAY_WIDTH"
+    );
     unsafe {
         esp_idf_svc::sys::hal_driver::lcd_color_fill(
             x_start as u16,

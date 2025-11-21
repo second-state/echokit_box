@@ -139,7 +139,10 @@ void lcd_color_fill(uint16_t sx, uint16_t sy, uint16_t ex, uint16_t ey, uint16_t
             buf_index++;
         }
 
-        esp_lcd_panel_draw_bitmap(panel_handle, sx, sy + y_index, ex, sy + 1 + y_index, buffer);
+        for (uint16_t i = 0; i < width; i += 80)
+        {
+            esp_lcd_panel_draw_bitmap(panel_handle, sx + i, sy + y_index, sx + i + 80, sy + y_index + 1, &buffer[i]);
+        }
     }
     /* 释放内存 */
     heap_caps_free(buffer);
