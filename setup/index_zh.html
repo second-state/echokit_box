@@ -37,25 +37,20 @@
 
                     <div class="card bg-base-100 border border-base-300">
                         <div class="card-body">
-                            <h3 class="card-title text-lg" id="ssidTitle">Wi-Fi 网络（必须是2.4GHz）</h3>
+                            <h3 class="card-title text-lg" id="ssidTitle">Wi-Fi（必须是2.4GHz）</h3>
                             <label class="form-control">
                                 <div class="label">
-                                    <span class="label-text">网络名字</span>
+                                    <span class="label-text">网络名 (SSID)</span>
                                 </div>
                                 <input type="text" id="ssidInput" placeholder="输入SSID" class="input input-bordered w-full">
                             </label>
-                        </div>
-                    </div>
-
-                    <div class="card bg-base-100 border border-base-300">
-                        <div class="card-body">
-                            <h3 class="card-title text-lg" id="passTitle">密码设置</h3>
                             <label class="form-control">
                                 <div class="label">
                                     <span class="label-text">密码</span>
                                 </div>
                                 <input type="password" id="passInput" placeholder="输入密码" class="input input-bordered w-full">
                             </label>
+                        </div>
                         </div>
                     </div>
 
@@ -110,7 +105,7 @@
     <dialog id="resetNotSupportedModal" class="modal">
         <div class="modal-box">
             <h3 class="font-bold text-lg">⚠️ 需要重启设备</h3>
-            <p class="py-4">设备不支持此操作，请通过按设备上的 k0 来重启</p>
+            <p class="py-4">请按设备上的 k0 键重启</p>
             <div class="modal-action">
                 <form method="dialog">
                     <button class="btn btn-primary">确定</button>
