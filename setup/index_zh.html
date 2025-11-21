@@ -183,8 +183,7 @@
 
         // 更新保存按钮状态
         function updateSaveButtonState() {
-            const hasModifications = Object.values(modifiedFields).some(modified => modified);
-            saveAllButton.disabled = !hasModifications;
+            // 连接时保存按钮始终可用
         }
 
         // 显示通知
@@ -331,6 +330,7 @@
         // 启用所有控件
         function enableControls() {
             loadAllButton.disabled = false;
+            saveAllButton.disabled = false;
             ssidInput.disabled = false;
             passInput.disabled = false;
             serverUrlInput.disabled = false;
@@ -419,23 +419,33 @@
 
             try {
                 let savedCount = 0;
+                const hasModifications = Object.values(modifiedFields).some(modified => modified);
 
-                if (modifiedFields.ssid) {
+                // 如果没有修改，发送所有三个参数
+                if (!hasModifications) {
                     await writeCharacteristic(SSID_ID, ssidInput.value);
-                    clearFieldModification('ssid', ssidTitle);
-                    savedCount++;
-                }
-
-                if (modifiedFields.pass) {
                     await writeCharacteristic(PASS_ID, passInput.value);
-                    clearFieldModification('pass', passTitle);
-                    savedCount++;
-                }
-
-                if (modifiedFields.url) {
                     await writeCharacteristic(SERVER_URL_ID, serverUrlInput.value);
-                    clearFieldModification('url', urlTitle);
-                    savedCount++;
+                    savedCount = 3;
+                } else {
+                    // 如果有修改，只发送修改的字段
+                    if (modifiedFields.ssid) {
+                        await writeCharacteristic(SSID_ID, ssidInput.value);
+                        clearFieldModification('ssid', ssidTitle);
+                        savedCount++;
+                    }
+
+                    if (modifiedFields.pass) {
+                        await writeCharacteristic(PASS_ID, passInput.value);
+                        clearFieldModification('pass', passTitle);
+                        savedCount++;
+                    }
+
+                    if (modifiedFields.url) {
+                        await writeCharacteristic(SERVER_URL_ID, serverUrlInput.value);
+                        clearFieldModification('url', urlTitle);
+                        savedCount++;
+                    }
                 }
 
                 showNotification('成功', `已保存 ${savedCount} 项修改`);
@@ -456,7 +466,7 @@
                 console.error('保存修改失败:', error);
                 showNotification('错误', '保存修改失败', true);
             } finally {
-                saveAllButton.disabled = true;
+                saveAllButton.disabled = false;
                 saveAllButton.textContent = '💾 保存修改';
             }
         }

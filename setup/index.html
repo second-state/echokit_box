@@ -187,8 +187,7 @@
 
         // Update save button state
         function updateSaveButtonState() {
-            const hasModifications = Object.values(modifiedFields).some(modified => modified);
-            saveAllButton.disabled = !hasModifications;
+            // Save button is always enabled when connected
         }
 
         // display message
@@ -335,6 +334,7 @@
         // Enable all controls
         function enableControls() {
             loadAllButton.disabled = false;
+            saveAllButton.disabled = false;
             ssidInput.disabled = false;
             passInput.disabled = false;
             serverUrlInput.disabled = false;
@@ -421,23 +421,33 @@
 
             try {
                 let savedCount = 0;
+                const hasModifications = Object.values(modifiedFields).some(modified => modified);
 
-                if (modifiedFields.ssid) {
+                // If no modifications, send all three parameters
+                if (!hasModifications) {
                     await writeCharacteristic(SSID_ID, ssidInput.value);
-                    clearFieldModification('ssid', ssidTitle);
-                    savedCount++;
-                }
-
-                if (modifiedFields.pass) {
                     await writeCharacteristic(PASS_ID, passInput.value);
-                    clearFieldModification('pass', passTitle);
-                    savedCount++;
-                }
-
-                if (modifiedFields.url) {
                     await writeCharacteristic(SERVER_URL_ID, serverUrlInput.value);
-                    clearFieldModification('url', urlTitle);
-                    savedCount++;
+                    savedCount = 3;
+                } else {
+                    // If there are modifications, only send modified fields
+                    if (modifiedFields.ssid) {
+                        await writeCharacteristic(SSID_ID, ssidInput.value);
+                        clearFieldModification('ssid', ssidTitle);
+                        savedCount++;
+                    }
+
+                    if (modifiedFields.pass) {
+                        await writeCharacteristic(PASS_ID, passInput.value);
+                        clearFieldModification('pass', passTitle);
+                        savedCount++;
+                    }
+
+                    if (modifiedFields.url) {
+                        await writeCharacteristic(SERVER_URL_ID, serverUrlInput.value);
+                        clearFieldModification('url', urlTitle);
+                        savedCount++;
+                    }
                 }
 
                 showNotification('Success', `Saved ${savedCount} changes`);
@@ -458,7 +468,7 @@
                 console.error('Save modifications failed:', error);
                 showNotification('Error', 'Save modifications failed', true);
             } finally {
-                saveAllButton.disabled = true;
+                saveAllButton.disabled = false;
                 saveAllButton.textContent = '💾 Save Changes';
             }
         }
