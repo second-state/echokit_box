@@ -5,11 +5,11 @@ use super::{consts::PCDErrorCode, MfrcDriver};
 
 pub struct I2CDriver<'d> {
     address: u8,
-    i2c: esp_idf_svc::hal::i2c::I2cDriver<'d>,
+    i2c: &'d mut esp_idf_svc::hal::i2c::I2cDriver<'static>,
 }
 
 impl<'d> I2CDriver<'d> {
-    pub fn new(i2c: esp_idf_svc::hal::i2c::I2cDriver<'d>, addr: u8) -> Self {
+    pub fn new(i2c: &'d mut esp_idf_svc::hal::i2c::I2cDriver<'static>, addr: u8) -> Self {
         Self { address: addr, i2c }
     }
 }

@@ -20,7 +20,7 @@ debug = true
 opt-level = "z"
 
 [features]
-default = ["boards"]
+default = ["cube2", "mfrc522"]
 
 experimental = ["esp-idf-svc/experimental"]
 
@@ -30,8 +30,9 @@ box = ["_no_default"]
 cube = ["_no_default"]
 cube2 = ["_no_default"]
 
-mfrc522 = ["ndef", "extra_server"]
+mfrc522 = ["i2c", "dep:ndef", "extra_server"]
 extra_server = []
+i2c = []
 
 voice_interrupt = []
 

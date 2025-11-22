@@ -195,10 +195,30 @@ macro_rules! start_hal {
             $peripherals.pins.gpio8,
             $peripherals.pins.gpio18,
         )?;
-
-        #[cfg(feature = "mfrc522")]
+        #[cfg(feature = "i2c")]
         {
-            todo!("MFRC522 initialization not implemented yet");
+            let config = esp_idf_svc::hal::i2c::config::Config::default()
+                .baudrate(esp_idf_svc::hal::units::Hertz(40_000));
+
+            let mut i2c_tasks: Vec<(crate::boards::I2CInitFn, crate::boards::I2CLoopFn)> = vec![];
+
+            #[cfg(feature = "mfrc522")]
+            {
+                i2c_tasks.push((crate::boards::init_mfrc522, crate::boards::mfrc522_loop));
+            }
+
+            if let Err(e) = crate::boards::init_i2c(
+                config,
+                $peripherals.i2c0,
+                $peripherals.pins.gpio41.into(),
+                $peripherals.pins.gpio42.into(),
+                $evt_tx.clone(),
+                i2c_tasks,
+                8 * 1024,
+                1000,
+            ) {
+                log::error!("Failed to initialize I2C: {:?}", e);
+            }
         }
     }
     let _backlight = {
