@@ -182,6 +182,61 @@ pub fn flush_display(color_data: &[u8], x_start: i32, y_start: i32, x_end: i32, 
     }
 }
 
+#[cfg(feature = "exio")]
+pub fn touch_switch_init(
+    i2c: &mut esp_idf_svc::hal::i2c::I2cDriver<'static>,
+) -> anyhow::Result<()> {
+    use crate::peripheral::exio::emakefun_exio::*;
+    // Set all pins to input mode
+    set_gpio_mode(i2c, 0x24, GpioPin::E0, GpioMode::InputPullDown)?;
+    set_gpio_mode(i2c, 0x24, GpioPin::E1, GpioMode::InputPullDown)?;
+
+    Ok(())
+}
+
+#[cfg(feature = "exio")]
+pub fn touch_switch_loop(
+    i2c: &mut esp_idf_svc::hal::i2c::I2cDriver<'static>,
+    evt_tx: &crate::audio::EventTx,
+) -> anyhow::Result<()> {
+    use crate::peripheral::exio::emakefun_exio::*;
+
+    static E0: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+    static E1: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+    // Read pin levels
+    let e0_level = read_gpio_level(i2c, 0x24, GpioPin::E0)?;
+    let e1_level = read_gpio_level(i2c, 0x24, GpioPin::E1)?;
+
+    if e0_level != E0.load(std::sync::atomic::Ordering::SeqCst) {
+        E0.store(e0_level, std::sync::atomic::Ordering::SeqCst);
+        if e0_level == 1 {
+            log::info!("Touch switch E0 pressed");
+        } else {
+            log::info!("Touch switch E0 not pressed");
+        }
+        if let Err(_) = evt_tx.blocking_send(crate::app::Event::Event(crate::app::Event::K0)) {
+            log::error!("Failed to send k0 event");
+        }
+    }
+
+    if e1_level != E1.load(std::sync::atomic::Ordering::SeqCst) {
+        E1.store(e1_level, std::sync::atomic::Ordering::SeqCst);
+        if e1_level == 1 {
+            log::info!("Touch switch E1 pressed");
+        } else {
+            log::info!("Touch switch E1 not pressed");
+        }
+        if let Err(_) =
+            evt_tx.blocking_send(crate::app::Event::Event(crate::app::Event::VOL_SWITCH))
+        {
+            log::error!("Failed to send k0 event");
+        }
+    }
+
+    Ok(())
+}
+
 #[macro_export]
 macro_rules! start_hal {
     ($peripherals:ident, $evt_tx:ident) => {{
@@ -205,6 +260,13 @@ macro_rules! start_hal {
             #[cfg(feature = "mfrc522")]
             {
                 i2c_tasks.push((crate::boards::init_mfrc522, crate::boards::mfrc522_loop));
+            }
+            #[cfg(feature = "exio")]
+            {
+                i2c_tasks.push((
+                    crate::boards::touch_switch_init,
+                    crate::boards::touch_switch_loop,
+                ));
             }
 
             if let Err(e) = crate::boards::init_i2c(

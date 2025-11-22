@@ -36,6 +36,7 @@ impl Event {
     pub const K2: &'static str = "k2";
     pub const VOL_UP: &'static str = "vol_up";
     pub const VOL_DOWN: &'static str = "vol_down";
+    pub const VOL_SWITCH: &'static str = "vol_switch";
 
     pub const NOTIFY: &'static str = "notify";
 }
@@ -254,6 +255,18 @@ pub async fn main_work<'d>(
                 vol -= 1;
                 if vol < 1 {
                     vol = 1;
+                }
+                player_tx
+                    .send(AudioEvent::VolSet(vol))
+                    .map_err(|e| anyhow::anyhow!("Error sending volume set: {e:?}"))?;
+                log::info!("Volume set to {}", vol);
+                gui.state = format!("Volume: {}", vol);
+                gui.display_flush().unwrap();
+            }
+            Event::Event(Event::VOL_SWITCH) => {
+                vol -= 1;
+                if vol < 1 {
+                    vol = 5;
                 }
                 player_tx
                     .send(AudioEvent::VolSet(vol))

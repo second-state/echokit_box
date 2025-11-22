@@ -31,6 +31,8 @@ cube = ["_no_default"]
 cube2 = ["_no_default"]
 
 mfrc522 = ["i2c", "dep:ndef", "extra_server"]
+exio = ["i2c"]
+
 extra_server = []
 i2c = []
 
