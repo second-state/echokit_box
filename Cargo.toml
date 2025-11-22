@@ -20,7 +20,7 @@ debug = true
 opt-level = "z"
 
 [features]
-default = ["cube2", "mfrc522"]
+default = ["boards"]
 
 experimental = ["esp-idf-svc/experimental"]
 
