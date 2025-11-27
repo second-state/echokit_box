@@ -121,11 +121,8 @@ pub fn bt(
                 args.current_data(),
                 args.recv_data()
             );
-            if let Ok(mut new_server_url) = String::from_utf8(args.recv_data().to_vec()) {
+            if let Ok(new_server_url) = String::from_utf8(args.recv_data().to_vec()) {
                 log::info!("New server URL: {}", new_server_url);
-                if !new_server_url.ends_with("/") {
-                    new_server_url.push('/');
-                }
                 let mut setting = setting_.lock().unwrap();
                 if let Err(e) = setting.1.set_str("server_url", &new_server_url) {
                     log::error!("Failed to save server URL to NVS: {:?}", e);
