@@ -50,11 +50,15 @@ fn main() -> anyhow::Result<()> {
         .unwrap_or_default()
         .to_string();
 
+    static DEFAULT_SERVER_URL: Option<&str> = std::option_env!("DEFAULT_SERVER_URL");
+    log::info!("DEFAULT_SERVER_URL: {:?}", DEFAULT_SERVER_URL);
+
     let mut server_url = nvs
         .get_str("server_url", &mut str_buf)
         .map_err(|e| log::error!("Failed to get server_url: {:?}", e))
         .ok()
         .flatten()
+        .or(DEFAULT_SERVER_URL)
         .unwrap_or_default()
         .to_string();
 
