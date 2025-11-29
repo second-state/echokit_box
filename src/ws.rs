@@ -132,6 +132,10 @@ impl Server {
 
         let (ws, _resp) = tokio_websockets::ClientBuilder::new()
             .uri(&u)?
+            .add_header(
+                http::HeaderName::from_static("sec-websocket-extensions"),
+                http::HeaderValue::from_static("permessage-deflate; client_max_window_bits"),
+            )?
             .connect()
             .await?;
 
@@ -162,6 +166,10 @@ impl Server {
 
         let (ws, _resp) = tokio_websockets::ClientBuilder::new()
             .uri(&u)?
+            .add_header(
+                http::HeaderName::from_static("sec-websocket-extensions"),
+                http::HeaderValue::from_static("permessage-deflate; client_max_window_bits"),
+            )?
             .connect()
             .await
             .map_err(|e| anyhow::anyhow!("Failed to reconnect: {}", e))?;
