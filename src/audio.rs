@@ -16,16 +16,17 @@ unsafe fn afe_init() -> (
     let afe_config = esp_sr::afe_config_init(
         c"MR".as_ptr() as _,
         models,
-        esp_sr::afe_type_t_AFE_TYPE_SR,
+        esp_sr::afe_type_t_AFE_TYPE_VC,
         esp_sr::afe_mode_t_AFE_MODE_HIGH_PERF,
     );
     let afe_config = afe_config.as_mut().unwrap();
 
     afe_config.pcm_config.sample_rate = 16000;
     afe_config.afe_ringbuf_size = 40;
-    afe_config.vad_min_noise_ms = 500;
-    // afe_config.vad_min_speech_ms = 300;
-    afe_config.vad_mode = esp_sr::vad_mode_t_VAD_MODE_3;
+    afe_config.vad_min_noise_ms = 250;
+    afe_config.vad_min_speech_ms = 250;
+    // afe_config.vad_delay_ms = 250; // Don't change it!!
+    afe_config.vad_mode = esp_sr::vad_mode_t_VAD_MODE_4;
 
     afe_config.agc_init = true;
     afe_config.afe_linear_gain = 2.0;
@@ -36,6 +37,8 @@ unsafe fn afe_init() -> (
     afe_config.ns_init = false;
     afe_config.wakenet_init = false;
     afe_config.memory_alloc_mode = esp_sr::afe_memory_alloc_mode_t_AFE_MEMORY_ALLOC_MORE_PSRAM;
+
+    crate::boards::afe_config(afe_config);
 
     log::info!("{afe_config:?}");
 
@@ -403,8 +406,43 @@ impl SendBuffer {
     }
 }
 
+struct RingBuffer<const MAX: usize> {
+    buff: Vec<Vec<i16>>,
+    start_index: usize,
+    chunk_size: usize,
+}
+
+impl<const MAX: usize> RingBuffer<MAX> {
+    fn new(chunk_size: usize) -> Self {
+        Self {
+            buff: vec![vec![0i16; chunk_size]; MAX],
+            start_index: 0,
+            chunk_size,
+        }
+    }
+
+    fn push(&mut self, data: Vec<i16>) {
+        assert!(data.len() == self.chunk_size);
+        self.buff[self.start_index] = data;
+        self.start_index = (self.start_index + 1) % MAX;
+    }
+
+    fn index(&self, n: usize) -> i16 {
+        let chunk_index = ((n / self.chunk_size) + self.start_index) % MAX;
+        let offset = n % self.chunk_size;
+        self.buff[chunk_index][offset]
+    }
+
+    fn index_form_end(&self, n: usize) -> i16 {
+        self.index(self.chunk_size * MAX - n - 1)
+    }
+}
+
 static PLAYING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-static VOL_NUM: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(3);
+static VOL_NUM: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(5);
+
+const CHUNK_SIZE: usize = 256;
+// const CHUNK_SIZE: usize = 512;
 
 fn audio_task_run(
     rx: &mut tokio::sync::mpsc::UnboundedReceiver<AudioEvent>,
@@ -424,6 +462,7 @@ fn audio_task_run(
 
     let feed_chunksize = afe_handle.feed_chunksize;
     log::info!("feed_chunksize: {}", feed_chunksize);
+    assert_eq!(feed_chunksize, CHUNK_SIZE);
 
     std::thread::Builder::new()
         .name("afe_feed".to_string())
@@ -442,9 +481,9 @@ fn audio_task_run(
     let mut read_buffer = vec![0i16; feed_chunksize];
     let mut send_buffer = SendBuffer::new(feed_chunksize);
     let empty_buffer = vec![0i16; feed_chunksize];
-    let mut ref_data_: Option<Vec<i16>> = send_buffer.get_chunk();
+    let mut ring_cache_buffer = RingBuffer::<6>::new(feed_chunksize);
 
-    let offset = 0;
+    let offset = crate::boards::AFE_AEC_OFFSET;
 
     let mut hello_wav = WAKE_WAV.to_vec();
     let mut allow_speech = false;
@@ -528,20 +567,14 @@ fn audio_task_run(
             let total = len / 2;
             let mut samples_with_ref = Vec::with_capacity(total);
 
-            let ref_data = ref_data_.as_ref().unwrap_or(&empty_buffer);
-
             for i in 0..total {
                 samples_with_ref.push(read_buffer[i]);
-                if offset + i < total {
-                    samples_with_ref.push(ref_data[offset + i])
-                } else {
-                    samples_with_ref.push(play_data[offset + i - total]);
-                }
+                samples_with_ref.push(ring_cache_buffer.index_form_end(offset - i))
             }
 
             chunk_tx.send(samples_with_ref).unwrap();
         }
-        ref_data_ = play_data_;
+        ring_cache_buffer.push(play_data.to_vec());
     }
 
     log::warn!("I2S loop exited");
@@ -618,7 +651,7 @@ impl BoxAudioWorker {
         crate::log_heap();
 
         let _afe_r = std::thread::Builder::new().stack_size(8 * 1024).spawn(|| {
-            let r = afe_worker(afe_handle_, tx, 600.0);
+            let r = afe_worker(afe_handle_, tx, 550.0);
             if let Err(e) = r {
                 log::error!("AFE worker error: {:?}", e);
             }
@@ -646,7 +679,7 @@ impl BoardsAudioWorker {
     pub fn run(self, mut rx: PlayerRx, tx: EventTx) -> anyhow::Result<()> {
         let i2s_config = config::StdConfig::new(
             config::Config::default()
-                .auto_clear(false)
+                .auto_clear(true)
                 .dma_buffer_count(2)
                 .frames_per_buffer(512),
             config::StdClkConfig::from_sample_rate_hz(SAMPLE_RATE),
