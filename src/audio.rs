@@ -651,7 +651,7 @@ impl BoxAudioWorker {
         crate::log_heap();
 
         let _afe_r = std::thread::Builder::new().stack_size(8 * 1024).spawn(|| {
-            let r = afe_worker(afe_handle_, tx, 550.0);
+            let r = afe_worker(afe_handle_, tx, crate::boards::TRIGGER_MEAN_VALUE);
             if let Err(e) = r {
                 log::error!("AFE worker error: {:?}", e);
             }
@@ -740,14 +740,9 @@ impl BoardsAudioWorker {
         let afe_handle = Arc::new(AFE::new());
         let afe_handle_ = afe_handle.clone();
 
-        #[cfg(feature = "cube2")]
-        const TRIGGER_MEAN_VALUE: f32 = 500.0;
-        #[cfg(not(feature = "cube2"))]
-        const TRIGGER_MEAN_VALUE: f32 = 300.0;
-
         let _afe_r = std::thread::Builder::new()
             .stack_size(8 * 1024)
-            .spawn(|| afe_worker(afe_handle_, tx, TRIGGER_MEAN_VALUE))?;
+            .spawn(|| afe_worker(afe_handle_, tx, crate::boards::TRIGGER_MEAN_VALUE))?;
 
         audio_task_run(&mut rx, &mut fn_read, &mut fn_write, afe_handle)
     }
