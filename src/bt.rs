@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use esp32_nimble::{utilities::BleUuid, uuid128, BLEAdvertisementData, NimbleProperties};
 
 const SERVICE_ID: BleUuid = uuid128!("623fa3e2-631b-4f8f-a6e7-a7b09c03e7e0");
+const MAC_ADDRESS_ID: BleUuid = uuid128!("a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d");
 const SSID_ID: BleUuid = uuid128!("1fda4d6e-2f14-42b0-96fa-453bed238375");
 const PASS_ID: BleUuid = uuid128!("a987ab18-a940-421a-a1d7-b94ee22bccbe");
 const SERVER_URL_ID: BleUuid = uuid128!("cef520a9-bcb5-4fc6-87f7-82804eee2b20");
@@ -10,6 +11,7 @@ const BACKGROUND_GIF_ID: BleUuid = uuid128!("d1f3b2c4-5e6f-4a7b-8c9d-0e1f2a3b4c5
 const RESET_ID: BleUuid = uuid128!("f0e1d2c3-b4a5-6789-0abc-def123456789");
 
 pub fn bt(
+    mac_address: String,
     setting: Arc<Mutex<(super::Setting, esp_idf_svc::nvs::EspDefaultNvs)>>,
     evt_tx: tokio::sync::mpsc::Sender<crate::app::Event>,
 ) -> anyhow::Result<String> {
@@ -164,6 +166,16 @@ pub fn bt(
         } else {
             log::warn!("Invalid reset command received via BLE.");
         }
+    });
+
+    // MAC 地址特征值（只读）- 返回 WiFi STA MAC 地址
+    let mac_characteristic = service
+        .lock()
+        .create_characteristic(MAC_ADDRESS_ID, NimbleProperties::READ);
+    let mac_addr = mac_address.clone();
+    mac_characteristic.lock().on_read(move |c, _| {
+        log::info!("Read from MAC address characteristic");
+        c.set_value(mac_addr.as_bytes());
     });
 
     ble_advertising.lock().set_data(

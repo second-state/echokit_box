@@ -125,6 +125,20 @@ fn main() -> anyhow::Result<()> {
         std::thread::sleep(std::time::Duration::from_millis(2000));
     }
 
+    // 获取 WiFi STA MAC 地址（用于 BLE 特征值和设备 ID）
+    let mut wifi_sta_mac = [0u8; 6];
+    unsafe {
+        esp_idf_svc::sys::esp_read_mac(
+            wifi_sta_mac.as_mut_ptr(),
+            esp_idf_svc::sys::esp_mac_type_t_ESP_MAC_WIFI_STA,
+        );
+    }
+    let mac_address = format!(
+        "{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+        wifi_sta_mac[0], wifi_sta_mac[1], wifi_sta_mac[2],
+        wifi_sta_mac[3], wifi_sta_mac[4], wifi_sta_mac[5]
+    );
+
     let need_init = {
         button.is_low() || state == 1 || ssid.is_empty() || pass.is_empty() || server_url.is_empty()
     };
@@ -140,7 +154,7 @@ fn main() -> anyhow::Result<()> {
             nvs,
         )));
 
-        let ble_addr = bt::bt(setting.clone(), evt_tx).unwrap();
+        let ble_addr = bt::bt(mac_address.clone(), setting.clone(), evt_tx).unwrap();
         log_heap();
 
         let version = env!("CARGO_PKG_VERSION");
@@ -220,6 +234,7 @@ fn main() -> anyhow::Result<()> {
     let wifi = _wifi.unwrap();
     log_heap();
 
+    // 使用 WiFi STA MAC 地址（与 BLE 特征值中暴露的地址一致）
     let mac = wifi.sta_netif().get_mac().unwrap();
     let dev_id = format!(
         "{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
