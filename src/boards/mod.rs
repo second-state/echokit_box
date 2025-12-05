@@ -18,7 +18,9 @@ pub mod cube2;
 #[cfg(feature = "cube2")]
 pub use cube2::*;
 
+#[cfg(feature = "i2c")]
 pub type I2CInitFn = fn(&mut esp_idf_svc::hal::i2c::I2cDriver<'static>) -> anyhow::Result<()>;
+#[cfg(feature = "i2c")]
 pub type I2CLoopFn = fn(
     &mut esp_idf_svc::hal::i2c::I2cDriver<'static>,
     &crate::audio::EventTx,
