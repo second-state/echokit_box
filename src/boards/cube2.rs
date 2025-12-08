@@ -9,7 +9,6 @@ use esp_idf_svc::{
 
 const AUDIO_STACK_SIZE: usize = 15 * 1024;
 pub const AFE_AEC_OFFSET: usize = 256;
-pub const TRIGGER_MEAN_VALUE: f32 = 300.0;
 
 pub fn afe_config(afe_config: &mut esp_idf_svc::sys::esp_sr::afe_config_t) {
     afe_config.agc_init = true;
