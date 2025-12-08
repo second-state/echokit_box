@@ -62,7 +62,7 @@ async fn ws_manager(
                 return Err(anyhow::anyhow!("WebSocket receive error: {}", e));
             }
             SelectItem::Send(Some(msg)) => {
-                log::info!("WebSocket message sent");
+                log::debug!("WebSocket message sent");
                 match msg {
                     SubmitItem::JSON(cmd) => {
                         let payload = serde_json::to_string(&cmd).map_err(|e| {

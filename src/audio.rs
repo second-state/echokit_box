@@ -16,16 +16,17 @@ unsafe fn afe_init() -> (
     let afe_config = esp_sr::afe_config_init(
         c"MR".as_ptr() as _,
         models,
-        esp_sr::afe_type_t_AFE_TYPE_SR,
+        esp_sr::afe_type_t_AFE_TYPE_VC,
         esp_sr::afe_mode_t_AFE_MODE_HIGH_PERF,
     );
     let afe_config = afe_config.as_mut().unwrap();
 
     afe_config.pcm_config.sample_rate = 16000;
     afe_config.afe_ringbuf_size = 40;
-    afe_config.vad_min_noise_ms = 500;
-    // afe_config.vad_min_speech_ms = 300;
-    afe_config.vad_mode = esp_sr::vad_mode_t_VAD_MODE_3;
+    afe_config.vad_min_noise_ms = 400;
+    afe_config.vad_min_speech_ms = 250;
+    // afe_config.vad_delay_ms = 250; // Don't change it!!
+    afe_config.vad_mode = esp_sr::vad_mode_t_VAD_MODE_4;
 
     afe_config.agc_init = true;
     afe_config.afe_linear_gain = 2.0;
@@ -36,6 +37,8 @@ unsafe fn afe_init() -> (
     afe_config.ns_init = false;
     afe_config.wakenet_init = false;
     afe_config.memory_alloc_mode = esp_sr::afe_memory_alloc_mode_t_AFE_MEMORY_ALLOC_MORE_PSRAM;
+
+    crate::boards::afe_config(afe_config);
 
     log::info!("{afe_config:?}");
 
@@ -147,18 +150,13 @@ pub type PlayerRx = tokio::sync::mpsc::UnboundedReceiver<AudioEvent>;
 pub type EventTx = tokio::sync::mpsc::Sender<crate::app::Event>;
 pub type EventRx = tokio::sync::mpsc::Receiver<crate::app::Event>;
 
-fn afe_worker(afe_handle: Arc<AFE>, tx: EventTx, trigger_mean_value: f32) -> anyhow::Result<()> {
+fn afe_worker(afe_handle: Arc<AFE>, tx: EventTx) -> anyhow::Result<()> {
     log::info!("AFE worker started");
     crate::log_heap();
     crate::print_stack_high();
     let mut speech = false;
-    let mut cache_buffer = Vec::with_capacity(16000);
-    let mut vol = VOL_NUM.load(std::sync::atomic::Ordering::Relaxed) as i16;
-    let mut trigger_mean_value_ =
-        trigger_mean_value * (get_volume(100, vol) as f32 / 100.0).max(0.3);
 
     loop {
-        let playing = PLAYING.load(std::sync::atomic::Ordering::Relaxed);
         let result = afe_handle.fetch();
         if let Err(_e) = &result {
             continue;
@@ -171,48 +169,18 @@ fn afe_worker(afe_handle: Arc<AFE>, tx: EventTx, trigger_mean_value: f32) -> any
         if result.speech {
             if !speech {
                 log::info!("Speech started");
-                vol = VOL_NUM.load(std::sync::atomic::Ordering::Relaxed) as i16;
-                trigger_mean_value_ =
-                    trigger_mean_value * (get_volume(100, vol) as f32 / 100.0).max(0.3);
             }
             speech = true;
             log::debug!("Speech detected, sending {} bytes", result.data.len());
-            if playing || cache_buffer.len() > 0 {
-                cache_buffer.extend_from_slice(&result.data);
-            } else {
-                tx.blocking_send(crate::app::Event::MicAudioChunk(result.data))
-                    .map_err(|_| anyhow::anyhow!("Failed to send data"))?;
-            }
+            tx.blocking_send(crate::app::Event::MicAudioChunk(result.data))
+                .map_err(|_| anyhow::anyhow!("Failed to send data"))?;
             continue;
         }
 
         if speech {
             log::info!("Speech ended");
-            if !cache_buffer.is_empty() {
-                let len = cache_buffer.len() as f32;
-                let mean = cache_buffer
-                    .iter()
-                    .map(|x| (*x as f32).abs() / len)
-                    .sum::<f32>();
-
-                if mean > trigger_mean_value_ || !playing {
-                    log::info!("Sending cached {} s, mean:{}", len / 16000.0, mean);
-                    tx.blocking_send(crate::app::Event::MicInterrupt(cache_buffer))
-                        .map_err(|_| anyhow::anyhow!("Failed to send data"))?;
-                    cache_buffer = Vec::with_capacity(16000);
-                } else {
-                    log::info!(
-                        "Dropping cached {} s, mean:{} below trigger {}",
-                        len / 16000.0,
-                        mean,
-                        trigger_mean_value_
-                    );
-                    cache_buffer.clear();
-                }
-            } else {
-                tx.blocking_send(crate::app::Event::MicAudioEnd)
-                    .map_err(|_| anyhow::anyhow!("Failed to send data"))?;
-            }
+            tx.blocking_send(crate::app::Event::MicAudioEnd)
+                .map_err(|_| anyhow::anyhow!("Failed to send data"))?;
 
             speech = false;
         }
@@ -253,22 +221,23 @@ pub fn player_welcome(
 pub enum AudioEvent {
     Hello(Arc<tokio::sync::Notify>),
     SetHello(Vec<u8>),
-    Interrupt(Arc<tokio::sync::Notify>),
+    StopSpeech,
     StartSpeech,
+    ClearSpeech,
     SpeechChunk(Vec<u8>),
     SpeechChunki16(Vec<i16>),
     EndSpeech(Arc<tokio::sync::Notify>),
     VolSet(u8),
 }
 
-enum SendBufferItem {
+pub enum SendBufferItem {
     Audio(Vec<i16>),
     EndSpeech(Arc<tokio::sync::Notify>),
 }
 
-struct SendBuffer {
-    cache: std::collections::LinkedList<SendBufferItem>,
-    chunk_size: usize,
+pub struct SendBuffer {
+    pub cache: std::collections::LinkedList<SendBufferItem>,
+    pub chunk_size: usize,
     pub rest: Vec<i16>,
     pub volume: i16,
 }
@@ -286,7 +255,7 @@ fn get_volume(value: i16, volume: i16) -> i16 {
 }
 
 impl SendBuffer {
-    fn new(chunk_size: usize) -> Self {
+    pub fn new(chunk_size: usize) -> Self {
         Self {
             cache: std::collections::LinkedList::new(),
             chunk_size,
@@ -295,7 +264,7 @@ impl SendBuffer {
         }
     }
 
-    fn push_u8(&mut self, data: &[u8]) {
+    pub fn push_u8(&mut self, data: &[u8]) {
         if self.rest.len() > 0 {
             let needed = self.chunk_size * 2 - self.rest.len() * 2;
             if data.len() >= needed {
@@ -339,7 +308,7 @@ impl SendBuffer {
         }
     }
 
-    fn push_i16(&mut self, data: &[i16]) {
+    pub fn push_i16(&mut self, data: &[i16]) {
         if self.rest.len() > 0 {
             let needed = self.chunk_size - self.rest.len();
             if data.len() >= needed {
@@ -371,11 +340,11 @@ impl SendBuffer {
         }
     }
 
-    fn push_back_end_speech(&mut self, notify: Arc<tokio::sync::Notify>) {
+    pub fn push_back_end_speech(&mut self, notify: Arc<tokio::sync::Notify>) {
         self.cache.push_back(SendBufferItem::EndSpeech(notify));
     }
 
-    fn get_chunk(&mut self) -> Option<Vec<i16>> {
+    pub fn get_chunk(&mut self) -> Option<Vec<i16>> {
         loop {
             match self.cache.pop_front() {
                 Some(SendBufferItem::Audio(v)) => return Some(v),
@@ -388,7 +357,7 @@ impl SendBuffer {
         }
     }
 
-    fn clear(&mut self) {
+    pub fn clear(&mut self) {
         loop {
             match self.cache.pop_front() {
                 Some(SendBufferItem::EndSpeech(tx)) => {
@@ -403,8 +372,43 @@ impl SendBuffer {
     }
 }
 
+struct RingBuffer<const MAX: usize> {
+    buff: Vec<Vec<i16>>,
+    start_index: usize,
+    chunk_size: usize,
+}
+
+impl<const MAX: usize> RingBuffer<MAX> {
+    fn new(chunk_size: usize) -> Self {
+        Self {
+            buff: vec![vec![0i16; chunk_size]; MAX],
+            start_index: 0,
+            chunk_size,
+        }
+    }
+
+    fn push(&mut self, data: Vec<i16>) {
+        assert!(data.len() == self.chunk_size);
+        self.buff[self.start_index] = data;
+        self.start_index = (self.start_index + 1) % MAX;
+    }
+
+    fn index(&self, n: usize) -> i16 {
+        let chunk_index = ((n / self.chunk_size) + self.start_index) % MAX;
+        let offset = n % self.chunk_size;
+        self.buff[chunk_index][offset]
+    }
+
+    fn index_form_end(&self, n: usize) -> i16 {
+        self.index(self.chunk_size * MAX - n - 1)
+    }
+}
+
 static PLAYING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-static VOL_NUM: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(3);
+static VOL_NUM: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(5);
+
+const CHUNK_SIZE: usize = 256;
+// const CHUNK_SIZE: usize = 512;
 
 fn audio_task_run(
     rx: &mut tokio::sync::mpsc::UnboundedReceiver<AudioEvent>,
@@ -424,6 +428,7 @@ fn audio_task_run(
 
     let feed_chunksize = afe_handle.feed_chunksize;
     log::info!("feed_chunksize: {}", feed_chunksize);
+    assert_eq!(feed_chunksize, CHUNK_SIZE);
 
     std::thread::Builder::new()
         .name("afe_feed".to_string())
@@ -442,9 +447,9 @@ fn audio_task_run(
     let mut read_buffer = vec![0i16; feed_chunksize];
     let mut send_buffer = SendBuffer::new(feed_chunksize);
     let empty_buffer = vec![0i16; feed_chunksize];
-    let mut ref_data_: Option<Vec<i16>> = send_buffer.get_chunk();
+    let mut ring_cache_buffer = RingBuffer::<6>::new(feed_chunksize);
 
-    let offset = 0;
+    let offset = crate::boards::AFE_AEC_OFFSET;
 
     let mut hello_wav = WAKE_WAV.to_vec();
     let mut allow_speech = false;
@@ -455,12 +460,6 @@ fn audio_task_run(
     loop {
         if let Ok(event) = rx.try_recv() {
             match event {
-                AudioEvent::Interrupt(notify) => {
-                    log::info!("Received Interrupt event");
-                    allow_speech = false;
-                    send_buffer.clear();
-                    notify.notify_one();
-                }
                 AudioEvent::Hello(notify) => {
                     log::info!("Received Hello event");
                     allow_speech = true;
@@ -473,6 +472,12 @@ fn audio_task_run(
                 }
                 AudioEvent::StartSpeech => {
                     allow_speech = true;
+                }
+                AudioEvent::StopSpeech => {
+                    allow_speech = false;
+                }
+                AudioEvent::ClearSpeech => {
+                    send_buffer.clear();
                 }
                 AudioEvent::SpeechChunk(items) => {
                     send_buffer.push_u8(&items);
@@ -528,20 +533,14 @@ fn audio_task_run(
             let total = len / 2;
             let mut samples_with_ref = Vec::with_capacity(total);
 
-            let ref_data = ref_data_.as_ref().unwrap_or(&empty_buffer);
-
             for i in 0..total {
                 samples_with_ref.push(read_buffer[i]);
-                if offset + i < total {
-                    samples_with_ref.push(ref_data[offset + i])
-                } else {
-                    samples_with_ref.push(play_data[offset + i - total]);
-                }
+                samples_with_ref.push(ring_cache_buffer.index_form_end(offset - i))
             }
 
             chunk_tx.send(samples_with_ref).unwrap();
         }
-        ref_data_ = play_data_;
+        ring_cache_buffer.push(play_data.to_vec());
     }
 
     log::warn!("I2S loop exited");
@@ -618,7 +617,7 @@ impl BoxAudioWorker {
         crate::log_heap();
 
         let _afe_r = std::thread::Builder::new().stack_size(8 * 1024).spawn(|| {
-            let r = afe_worker(afe_handle_, tx, 600.0);
+            let r = afe_worker(afe_handle_, tx);
             if let Err(e) = r {
                 log::error!("AFE worker error: {:?}", e);
             }
@@ -646,7 +645,7 @@ impl BoardsAudioWorker {
     pub fn run(self, mut rx: PlayerRx, tx: EventTx) -> anyhow::Result<()> {
         let i2s_config = config::StdConfig::new(
             config::Config::default()
-                .auto_clear(false)
+                .auto_clear(true)
                 .dma_buffer_count(2)
                 .frames_per_buffer(512),
             config::StdClkConfig::from_sample_rate_hz(SAMPLE_RATE),
@@ -707,14 +706,9 @@ impl BoardsAudioWorker {
         let afe_handle = Arc::new(AFE::new());
         let afe_handle_ = afe_handle.clone();
 
-        #[cfg(feature = "cube2")]
-        const TRIGGER_MEAN_VALUE: f32 = 500.0;
-        #[cfg(not(feature = "cube2"))]
-        const TRIGGER_MEAN_VALUE: f32 = 300.0;
-
         let _afe_r = std::thread::Builder::new()
             .stack_size(8 * 1024)
-            .spawn(|| afe_worker(afe_handle_, tx, TRIGGER_MEAN_VALUE))?;
+            .spawn(|| afe_worker(afe_handle_, tx))?;
 
         audio_task_run(&mut rx, &mut fn_read, &mut fn_write, afe_handle)
     }

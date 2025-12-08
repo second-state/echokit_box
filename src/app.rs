@@ -14,7 +14,6 @@ pub enum Event {
     ServerEvent(ServerEvent),
     MicAudioChunk(Vec<i16>),
     MicAudioEnd,
-    MicInterrupt(Vec<i16>),
     MicInterruptWaitTimeout,
     #[cfg_attr(not(feature = "extra_server"), allow(unused))]
     ServerUrl(String),
@@ -82,9 +81,6 @@ async fn select_evt(
                 },
                 Event::ServerEvent(_) => {
                     log::info!("[Select] Received ServerEvent: {:?}", evt);
-                },
-                Event::MicInterrupt(data) => {
-                    log::info!("[Select] Received MicInterrupt with {} samples", data.len());
                 },
                 Event::MicInterruptWaitTimeout => {
                     log::info!("[Select] Received MicInterruptWaitTimeout");
@@ -292,11 +288,7 @@ pub async fn main_work<'d>(
             Event::Event(evt) => {
                 log::info!("Received event: {:?}", evt);
             }
-            Event::MicAudioChunk(data) => {
-                if state != State::Listening {
-                    log::debug!("Received MicAudioChunk while no Listening state, ignoring");
-                    continue;
-                }
+            Event::MicAudioChunk(data) if state == State::Listening => {
                 submit_audio += data.len() as f32 / 16000.0;
                 audio_buffer.extend_from_slice(&data);
 
@@ -313,12 +305,60 @@ pub async fn main_work<'d>(
                     audio_buffer = Vec::with_capacity(8192);
                 }
             }
+            Event::MicAudioChunk(data) if state == State::Speaking && allow_interrupt => {
+                submit_audio += data.len() as f32 / 16000.0;
+                audio_buffer.extend_from_slice(&data);
+                if audio_buffer.len() == 0 {
+                    player_tx
+                        .send(AudioEvent::StopSpeech)
+                        .map_err(|_| anyhow::anyhow!("Error sending stop"))?;
+                }
+
+                if submit_audio > 0.6 {
+                    state = State::Listening;
+                    gui.state = "Listening...".to_string();
+                    gui.display_flush().unwrap();
+
+                    server.reconnect_with_retry(3).await?;
+
+                    start_submit = true;
+                    server
+                        .send_client_command(protocol::ClientCommand::StartChat)
+                        .await?;
+
+                    player_tx
+                        .send(AudioEvent::ClearSpeech)
+                        .map_err(|_| anyhow::anyhow!("Error sending clear"))?;
+                }
+            }
+            Event::MicAudioChunk(_) => {
+                log::debug!("Received MicAudioChunk while no Listening/Speaking state, ignoring");
+            }
             Event::MicAudioEnd => {
                 log::info!("Received MicAudioEnd");
-                if state != State::Listening {
-                    log::debug!("Received MicAudioEnd while no Listening state, ignoring");
+                if state != State::Listening && state != State::Speaking {
+                    log::debug!("Received MicAudioEnd while no Listening/Speaking state, ignoring");
                     continue;
                 }
+
+                if state == State::Speaking {
+                    if !allow_interrupt {
+                        log::info!("Interrupt not allowed, ignoring MicAudioEnd");
+                        continue;
+                    }
+                    log::info!("resuming to Listening state due to MicAudioEnd");
+                    player_tx
+                        .send(AudioEvent::StartSpeech)
+                        .map_err(|_| anyhow::anyhow!("Error sending stop"))?;
+                    log::info!("Waiting for stop speech response");
+                    submit_audio = 0.0;
+                    start_submit = false;
+                    audio_buffer.clear();
+                    continue;
+                }
+
+                log::info!("submit_audio = {}", submit_audio);
+
                 if submit_audio > 0.5 {
                     if !audio_buffer.is_empty() {
                         server.send_client_audio_chunk_i16(audio_buffer).await?;
@@ -337,51 +377,6 @@ pub async fn main_work<'d>(
                     gui.state = "Waiting...".to_string();
                     gui.display_flush().unwrap();
                 }
-            }
-            Event::MicInterrupt(interrupt_data) => {
-                log::info!(
-                    "Received MicInterrupt with {} samples",
-                    interrupt_data.len()
-                );
-                if !(state == State::Listening || state == State::Speaking) {
-                    log::debug!(
-                        "Received MicInterrupt while no Listening or Speaking state, ignoring"
-                    );
-                    continue;
-                }
-
-                if !allow_interrupt {
-                    log::info!("Interrupts are disabled, ignoring MicInterrupt");
-                    continue;
-                }
-
-                let interrupt_audio_sec = interrupt_data.len() as f32 / 16000.0;
-                if interrupt_audio_sec < 1.2 {
-                    log::info!(
-                        "Interrupt audio too short ({} s), ignoring",
-                        interrupt_audio_sec
-                    );
-                    continue;
-                }
-
-                let int_notify = Arc::new(tokio::sync::Notify::new());
-                player_tx
-                    .send(AudioEvent::Interrupt(int_notify.clone()))
-                    .map_err(|e| anyhow::anyhow!("Error sending interrupt: {e:?}"))?;
-                log::info!("Waiting for interrupt response");
-                let _ = int_notify.notified().await;
-                log::info!("Interrupt response received");
-
-                server.reconnect_with_retry(3).await?;
-
-                start_submit = false;
-                submit_audio = interrupt_audio_sec;
-                audio_buffer = interrupt_data;
-
-                state = State::Listening;
-                gui.state = "Listening...".to_string();
-                gui.display_flush().unwrap();
-                timeout = INTERNAL_TIMEOUT;
             }
             Event::MicInterruptWaitTimeout => {
                 log::info!("Received MicInterruptWaitTimeout");

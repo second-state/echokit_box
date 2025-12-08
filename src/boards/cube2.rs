@@ -8,6 +8,15 @@ use esp_idf_svc::{
 };
 
 const AUDIO_STACK_SIZE: usize = 15 * 1024;
+pub const AFE_AEC_OFFSET: usize = 256;
+
+pub fn afe_config(afe_config: &mut esp_idf_svc::sys::esp_sr::afe_config_t) {
+    afe_config.agc_init = true;
+    afe_config.agc_mode = esp_idf_svc::sys::esp_sr::afe_agc_mode_t_AFE_AGC_MODE_WEBRTC;
+    afe_config.agc_target_level_dbfs = 1;
+    afe_config.agc_compression_gain_db = 25;
+    afe_config.afe_linear_gain = 1.0;
+}
 
 pub fn start_audio_workers(
     out_i2s: I2S1,

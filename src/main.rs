@@ -235,6 +235,7 @@ fn main() -> anyhow::Result<()> {
     gui.text = format!("Please check your server URL: {server_url}\nPress K0 to open settings");
     let server = b.block_on(ws::Server::new(dev_id, server_url));
     if server.is_err() {
+        log::info!("Failed to connect to server: {:?}", server.err());
         gui.display_flush().unwrap();
         b.block_on(button.wait_for_falling_edge()).unwrap();
         nvs.set_u8("state", 1).unwrap();
