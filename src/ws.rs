@@ -44,10 +44,18 @@ async fn ws_manager(
                 if msg.is_binary() {
                     let payload = msg.into_payload();
                     let evt = rmp_serde::from_slice::<ServerEvent>(&payload)
-                        .map_err(|e| anyhow::anyhow!("Failed to deserialize binary data: {}", e))?;
-                    tx.send(evt)
-                        .await
-                        .map_err(|e| anyhow::anyhow!("Failed to send event to channel: {}", e))?;
+                        .map_err(|e| anyhow::anyhow!("Failed to deserialize binary data: {}", e));
+                    match evt {
+                        Err(e) => {
+                            log::warn!("{}", e);
+                            continue;
+                        }
+                        Ok(evt) => {
+                            tx.send(evt).await.map_err(|e| {
+                                anyhow::anyhow!("Failed to send event to channel: {}", e)
+                            })?;
+                        }
+                    }
                 } else {
                     log::error!("Unexpected non-binary WebSocket message received");
                     continue;
