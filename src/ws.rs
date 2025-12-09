@@ -176,14 +176,30 @@ impl Server {
             format!("{}/{}?opus=true", url, id)
         };
 
+        log::info!("Connecting to WebSocket server: {}", u);
+
         let (ws, _resp) = tokio_websockets::ClientBuilder::new()
-            .uri(&u)?
+            .uri(&u)
+            .map_err(|e| {
+                log::error!("Failed to parse WebSocket URI: {}", e);
+                anyhow::anyhow!("Failed to parse WebSocket URI: {}", e)
+            })?
             .add_header(
                 http::HeaderName::from_static("sec-websocket-extensions"),
                 http::HeaderValue::from_static("permessage-deflate; client_max_window_bits"),
-            )?
+            )
+            .map_err(|e| {
+                log::error!("Failed to add header: {}", e);
+                anyhow::anyhow!("Failed to add header: {}", e)
+            })?
             .connect()
-            .await?;
+            .await
+            .map_err(|e| {
+                log::error!("Failed to connect to WebSocket: {}", e);
+                anyhow::anyhow!("Failed to connect to WebSocket: {}", e)
+            })?;
+
+        log::info!("WebSocket connected successfully");
 
         let timeout = std::time::Duration::from_secs(30);
 
