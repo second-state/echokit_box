@@ -96,6 +96,9 @@ async fn select_evt(
                 Event::ServerEvent(ServerEvent::AudioChunk { .. })=>{
                     log::debug!("[Select] Received AudioChunk");
                 }
+                Event::ServerEvent(ServerEvent::AudioChunki16 { .. })=>{
+                    log::debug!("[Select] Received AudioChunki16");
+                }
                 Event::ServerEvent(ServerEvent::HelloChunk { .. })=>{
                     log::debug!("[Select] Received HelloChunk");
                 }
@@ -457,6 +460,31 @@ pub async fn main_work<'d>(
                         std::slice::from_raw_parts(data.as_ptr() as *const i16, data.len() / 2)
                     };
                     recv_audio_buffer.extend_from_slice(data_);
+                }
+            }
+            Event::ServerEvent(ServerEvent::AudioChunki16 { data }) => {
+                log::debug!("Received audio chunk");
+                if state != State::Speaking {
+                    log::debug!("Received audio chunk while not speaking");
+                    continue;
+                }
+
+                if need_compute {
+                    if start_audio {
+                        metrics.reset();
+                        start_audio = false;
+                    }
+                    metrics.add_data(data.len() * 2);
+                }
+
+                if speed < SPEED_LIMIT {
+                    if let Err(e) = player_tx.send(AudioEvent::SpeechChunki16(data)) {
+                        log::error!("Error sending audio chunk: {:?}", e);
+                        gui.state = "Error on audio chunk".to_string();
+                        gui.display_flush().unwrap();
+                    }
+                } else {
+                    recv_audio_buffer.extend_from_slice(&data);
                 }
             }
             Event::ServerEvent(ServerEvent::EndAudio) => {

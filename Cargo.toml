@@ -29,6 +29,7 @@ _no_default = []
 box = ["_no_default"]
 cube = ["_no_default"]
 cube2 = ["_no_default"]
+nfc_cube2 = ["cube2", "mfrc522", "exio"]
 
 mfrc522 = ["i2c", "dep:ndef", "extra_server"]
 exio = ["i2c"]
@@ -95,3 +96,8 @@ bindings_module = "esp_sr"
 component_dirs = ["components/hal_driver"]
 bindings_header = "components/hal_driver/wrapper.h"
 bindings_module = "hal_driver"
+
+[[package.metadata.esp-idf-sys.extra_components]]
+remote_component = { name = "78/esp-opus", version = "^1.0.5" }
+bindings_header = "components/78_opus/bindgen.h"
+bindings_module = "xz_78_opus"

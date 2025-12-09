@@ -11,6 +11,7 @@ pub enum ServerEvent {
     Action { action: String },
     StartAudio { text: String },
     AudioChunk { data: Vec<u8> },
+    AudioChunki16 { data: Vec<i16> },
     EndAudio,
     StartVideo,
     EndVideo,

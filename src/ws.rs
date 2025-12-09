@@ -22,10 +22,14 @@ async fn ws_manager(
     mut rx: tokio::sync::mpsc::Receiver<SubmitItem>,
     tx: tokio::sync::mpsc::Sender<ServerEvent>,
 ) -> anyhow::Result<()> {
+    use crate::codec::opus;
     enum SelectItem {
         Recv(Option<Result<Message, tokio_websockets::error::Error>>),
         Send(Option<SubmitItem>),
     }
+
+    let mut opus_decoder = opus::Decoder::new(16000, opus::Channels::Mono)?;
+    let mut opus_buffer = vec![0i16; 16000 * 12 / 100]; // 120ms buffer
 
     loop {
         let recv_fut = ws.next();
@@ -49,6 +53,40 @@ async fn ws_manager(
                         Err(e) => {
                             log::warn!("{}", e);
                             continue;
+                        }
+                        Ok(ServerEvent::AudioChunk { data }) => {
+                            match opus_decoder.decode(&data, &mut opus_buffer, false) {
+                                Ok(decoded_samples) => {
+                                    let data = opus_buffer[..decoded_samples]
+                                        .iter()
+                                        .cloned()
+                                        .collect::<Vec<i16>>();
+                                    let server_event = ServerEvent::AudioChunki16 { data };
+                                    tx.send(server_event).await.map_err(|_| {
+                                        anyhow::anyhow!(
+                                            "Failed to send opus audio chunk to channel",
+                                        )
+                                    })?;
+                                }
+                                Err(e) => {
+                                    log::warn!("Failed to decode opus audio chunk: {}", e);
+                                    continue;
+                                }
+                            }
+                        }
+                        Ok(ServerEvent::StartAudio { text }) => {
+                            log::info!("Received StartAudio event: {}", text);
+                            opus_decoder.reset_state().map_err(|e| {
+                                anyhow::anyhow!("Failed to reset opus decoder state: {}", e)
+                            })?;
+                            tx.send(ServerEvent::StartAudio { text })
+                                .await
+                                .map_err(|e| {
+                                    anyhow::anyhow!(
+                                        "Failed to send StartAudio event to channel: {}",
+                                        e
+                                    )
+                                })?;
                         }
                         Ok(evt) => {
                             tx.send(evt).await.map_err(|e| {
@@ -133,9 +171,9 @@ pub struct Server {
 impl Server {
     pub async fn new(id: String, url: String) -> anyhow::Result<Self> {
         let u = if url.ends_with("/") {
-            format!("{}{}", url, id)
+            format!("{}{}?opus=true", url, id)
         } else {
-            format!("{}/{}", url, id)
+            format!("{}/{}?opus=true", url, id)
         };
 
         let (ws, _resp) = tokio_websockets::ClientBuilder::new()
@@ -167,9 +205,9 @@ impl Server {
 
     pub async fn reconnect(&mut self) -> anyhow::Result<()> {
         let u = if self.url.ends_with("/") {
-            format!("{}{}?reconnect=true", self.url, self.id)
+            format!("{}{}?reconnect=true&opus=true", self.url, self.id)
         } else {
-            format!("{}/{}?reconnect=true", self.url, self.id)
+            format!("{}/{}?reconnect=true&opus=true", self.url, self.id)
         };
 
         let (ws, _resp) = tokio_websockets::ClientBuilder::new()

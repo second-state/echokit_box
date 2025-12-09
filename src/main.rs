@@ -5,6 +5,7 @@ use esp_idf_svc::eventloop::EspSystemEventLoop;
 mod app;
 mod audio;
 mod bt;
+mod codec;
 mod network;
 mod protocol;
 mod ui;
@@ -219,7 +220,7 @@ fn main() -> anyhow::Result<()> {
     let wifi = _wifi.unwrap();
     log_heap();
 
-    let mac = wifi.ap_netif().get_mac().unwrap();
+    let mac = wifi.sta_netif().get_mac().unwrap();
     let dev_id = format!(
         "{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
