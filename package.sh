@@ -17,7 +17,7 @@ build_cube2(){
 
 build_box(){
     echo "build echokit(box)"
-    cargo build --release --no-default-features --features=box
+    cargo build --release --features=box
     cp target/xtensa-esp32s3-espidf/release/echokit package/echokit_box
     espflash save-image --chip esp32s3 --merge --flash-size 16mb --partition-table partitions.csv target/xtensa-esp32s3-espidf/release/echokit package/echokit_box.bin
 }
