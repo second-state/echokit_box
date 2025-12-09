@@ -1,4 +1,14 @@
 dependencies:
+  78/esp-opus:
+    component_hash: 8182b733f071d7bfe1e837f4c9f8649a63e4c937177f089e65772880c02f2e17
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.0.5
   espressif/esp-dsp:
     component_hash: 619639efc18cfa361a9e423739b9b0ffc14991effc6c027f955c2f2c3bf1754b
     dependencies:
@@ -28,7 +38,8 @@ dependencies:
       type: idf
     version: 5.4.1
 direct_dependencies:
+- 78/esp-opus
 - espressif/esp-sr
-manifest_hash: 02fa0b8da76d97234f1906120eca12c93f5d7a9e2bb8fef29c38a5e8ce1fa669
+manifest_hash: f460124078aa87469b230b3a7a5e3f7e75ca0ef90eb537d765a737c3d5e35e3e
 target: esp32s3
 version: 2.0.0
