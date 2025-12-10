@@ -5,6 +5,7 @@ use esp_idf_svc::eventloop::EspSystemEventLoop;
 mod app;
 mod audio;
 mod bt;
+mod captive_portal;
 mod codec;
 mod network;
 mod protocol;
@@ -21,6 +22,17 @@ struct Setting {
     pass: String,
     server_url: String,
     background_gif: (Vec<u8>, bool), // (data, ended)
+}
+
+/// 配网模式
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ProvisioningMode {
+    /// 无需配网
+    None,
+    /// Web 配网（SoftAP + HTTP）
+    Web,
+    /// BLE 配网
+    Ble,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -139,10 +151,43 @@ fn main() -> anyhow::Result<()> {
         wifi_sta_mac[3], wifi_sta_mac[4], wifi_sta_mac[5]
     );
 
-    let need_init = {
-        button.is_low() || state == 1 || ssid.is_empty() || pass.is_empty() || server_url.is_empty()
+    // 检测配网模式
+    let provisioning_mode = {
+        let config_missing = ssid.is_empty() || pass.is_empty() || server_url.is_empty();
+        let button_pressed = button.is_low();
+
+        if !config_missing && !button_pressed && state != 1 {
+            ProvisioningMode::None
+        } else if button_pressed {
+            // 检测按钮按压时长：短按 -> Web，长按（>2秒）-> BLE
+            gui.state = "检测配网模式...".to_string();
+            gui.text = "松开按钮: Web配网\n持续按住2秒: BLE配网".to_string();
+            gui.display_flush().unwrap();
+
+            let start = std::time::Instant::now();
+            while button.is_low() && start.elapsed().as_secs() < 2 {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+
+            if button.is_low() {
+                // 长按超过2秒，使用 BLE 配网
+                log::info!("Long press detected, using BLE provisioning");
+                ProvisioningMode::Ble
+            } else {
+                // 短按，使用 Web 配网
+                log::info!("Short press detected, using Web provisioning");
+                ProvisioningMode::Web
+            }
+        } else {
+            // 配置缺失或 state == 1，默认使用 Web 配网
+            log::info!("Config missing or state=1, using Web provisioning");
+            ProvisioningMode::Web
+        }
     };
-    if need_init {
+
+    log::info!("Provisioning mode: {:?}", provisioning_mode);
+
+    if provisioning_mode != ProvisioningMode::None {
         gif_buf.clear();
         let setting = Arc::new(Mutex::new((
             Setting {
@@ -154,42 +199,106 @@ fn main() -> anyhow::Result<()> {
             nvs,
         )));
 
-        let ble_addr = bt::bt(mac_address.clone(), setting.clone(), evt_tx).unwrap();
-        log_heap();
-
         let version = env!("CARGO_PKG_VERSION");
+        let mac_suffix = &mac_address[9..].replace(":", ""); // 取后6位作为后缀
 
-        gui.state = "Please setup device by bt".to_string();
-        gui.text = format!("Goto https://echokit.dev/setup/ to set up the device.\nDevice Name: EchoKit-{}\nVersion: {}", ble_addr, version);
-        gui.display_qrcode("https://echokit.dev/setup/").unwrap();
+        match provisioning_mode {
+            ProvisioningMode::Web => {
+                // Web 配网模式
+                gui.state = "Web 配网模式".to_string();
+                gui.text = format!(
+                    "1. 连接 WiFi: EchoKit-{}\n2. 打开浏览器访问:\n   http://192.168.4.1\n\n长按按钮切换到BLE配网",
+                    mac_suffix
+                );
+                gui.display_qrcode("http://192.168.4.1").unwrap();
 
-        #[cfg(feature = "boards")]
-        {
-            let dout = peripherals.pins.gpio7;
-            let bclk = peripherals.pins.gpio15;
-            let lrclk = peripherals.pins.gpio16;
-            audio::player_welcome(
-                peripherals.i2s0,
-                bclk.into(),
-                dout.into(),
-                lrclk.into(),
-                None,
-                None,
-            );
-        }
+                log::info!("Starting Web provisioning...");
+                let _portal = captive_portal::CaptivePortal::start(
+                    peripherals.modem,
+                    sysloop.clone(),
+                    mac_suffix,
+                    setting.clone(),
+                );
 
-        b.block_on(async {
-            tokio::select! {
-                _ = button.wait_for_falling_edge() =>{
-                    log::info!("Button k0 pressed to enter setup");
-                }
-                _ = evt_rx.recv() => {
-                    log::info!("Received event to enter setup");
+                match _portal {
+                    Ok(portal) => {
+                        log::info!("CaptivePortal started successfully");
+                        // 等待配置完成或按钮长按切换到 BLE
+                        b.block_on(async {
+                            loop {
+                                tokio::select! {
+                                    _ = button.wait_for_falling_edge() => {
+                                        // 检测是否长按
+                                        let start = std::time::Instant::now();
+                                        while button.is_low() && start.elapsed().as_secs() < 2 {
+                                            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                                        }
+                                        if button.is_low() {
+                                            log::info!("Long press detected, switching to BLE mode");
+                                            break;
+                                        }
+                                    }
+                                    _ = evt_rx.recv() => {
+                                        log::info!("Received config event");
+                                        break;
+                                    }
+                                }
+                            }
+                        });
+                        drop(portal);
+                    }
+                    Err(e) => {
+                        log::error!("Failed to start CaptivePortal: {:?}", e);
+                        gui.state = "Web配网启动失败".to_string();
+                        gui.text = format!("错误: {:?}\n按按钮重启", e);
+                        gui.display_flush().unwrap();
+                        b.block_on(button.wait_for_falling_edge()).unwrap();
+                    }
                 }
             }
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        });
+            ProvisioningMode::Ble => {
+                // BLE 配网模式
+                let ble_addr = bt::bt(mac_address.clone(), setting.clone(), evt_tx).unwrap();
+                log_heap();
 
+                gui.state = "BLE 配网模式".to_string();
+                gui.text = format!(
+                    "请使用 EchoKit App 配置设备\n设备名: EchoKit-{}\n版本: {}\n\n短按按钮切换到Web配网",
+                    ble_addr, version
+                );
+                gui.display_qrcode("https://echokit.dev/setup/").unwrap();
+
+                #[cfg(feature = "boards")]
+                {
+                    let dout = peripherals.pins.gpio7;
+                    let bclk = peripherals.pins.gpio15;
+                    let lrclk = peripherals.pins.gpio16;
+                    audio::player_welcome(
+                        peripherals.i2s0,
+                        bclk.into(),
+                        dout.into(),
+                        lrclk.into(),
+                        None,
+                        None,
+                    );
+                }
+
+                b.block_on(async {
+                    tokio::select! {
+                        _ = button.wait_for_falling_edge() => {
+                            log::info!("Button k0 pressed to enter setup");
+                        }
+                        _ = evt_rx.recv() => {
+                            log::info!("Received event to enter setup");
+                        }
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                });
+            }
+            ProvisioningMode::None => unreachable!(),
+        }
+
+        // 处理背景 GIF
         {
             let mut setting = setting.lock().unwrap();
             if setting.0.background_gif.1 {
