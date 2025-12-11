@@ -936,7 +936,7 @@ pub mod packet {
     }
 
     /// Parse an Opus packet into one or more frames.
-    pub fn parse(packet: &[u8]) -> Result<Packet> {
+    pub fn parse(packet: &[u8]) -> Result<Packet<'_>> {
         let mut toc: u8 = 0;
         let mut frames = [ptr::null(); 48];
         let mut sizes = [0i16; 48];

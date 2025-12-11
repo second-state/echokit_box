@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use esp_idf_svc::eventloop::EspSystemEventLoop;
 
+mod activation;
 mod app;
 mod audio;
 mod bt;
@@ -9,6 +10,7 @@ mod captive_portal;
 mod codec;
 mod network;
 mod protocol;
+mod report;
 mod ui;
 mod ws;
 
@@ -42,7 +44,7 @@ fn main() -> anyhow::Result<()> {
     let sysloop = EspSystemEventLoop::take()?;
     let _fs = esp_idf_svc::io::vfs::MountedEventfs::mount(20)?;
     let partition = esp_idf_svc::nvs::EspDefaultNvsPartition::take()?;
-    let nvs = esp_idf_svc::nvs::EspDefaultNvs::new(partition, "setting", true)?;
+    let mut nvs = esp_idf_svc::nvs::EspDefaultNvs::new(partition, "setting", true)?;
 
     let state = nvs.get_u8("state").ok().flatten().unwrap_or(0);
 
@@ -349,6 +351,150 @@ fn main() -> anyhow::Result<()> {
         "{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
     );
+
+    // 检查设备是否已激活
+    let activated = nvs.get_u8("activated").ok().flatten().unwrap_or(0) == 1;
+    log::info!("设备激活状态: {}", if activated { "已激活" } else { "未激活" });
+
+    if !activated {
+        // 需要激活
+        gui.state = "设备激活".to_string();
+        gui.text = "正在获取激活码...".to_string();
+        gui.display_flush().unwrap();
+
+        // 创建激活会话（携带固件版本）
+        let firmware_version = env!("CARGO_PKG_VERSION").to_string();
+        let mut session = activation::ActivationSession::new(
+            dev_id.clone(),
+            server_url.clone(),
+            firmware_version,
+        );
+
+        // 1. 请求激活码
+        match session.request_activation_code() {
+            Ok(_) => {
+                let code = session.get_code();
+                log::info!("激活码就绪: {}", code);
+
+                // 显示激活码
+                gui.state = "请在手机上输入激活码".to_string();
+                gui.text = format!(
+                    "激活码: {}\n\n请打开 EchoKit 控制台\n输入上方 6 位数字完成绑定\n\n有效期 5 分钟",
+                    code
+                );
+                gui.display_flush().unwrap();
+
+                // TODO: 语音播报激活码
+            }
+            Err(e) => {
+                log::error!("获取激活码失败: {}", e);
+                gui.state = "获取激活码失败".to_string();
+                gui.text = format!("{}\n\n按按钮重试", e);
+                gui.display_flush().unwrap();
+
+                b.block_on(button.wait_for_falling_edge()).unwrap();
+                unsafe { esp_idf_svc::sys::esp_restart() }
+            }
+        }
+
+        // 2. 轮询验证激活状态
+        let config = activation::ActivationConfig::default();
+        let mut activation_success = None;
+
+        for poll_count in 0..config.max_poll_count {
+            // 等待轮询间隔
+            std::thread::sleep(std::time::Duration::from_millis(config.poll_interval_ms));
+
+            // 更新 UI
+            gui.state = format!("等待确认 ({}/{})", poll_count + 1, config.max_poll_count);
+            gui.display_flush().unwrap();
+
+            log::info!("等待用户确认... (第 {} 次轮询)", poll_count + 1);
+
+            // 验证激活状态
+            match session.verify_activation() {
+                Ok(activation::VerifyResponse::Bound(resp)) => {
+                    log::info!("激活成功: device_name={}, proxy_url={}", resp.device_name, resp.proxy_url);
+                    activation_success = Some(resp);
+                    break;
+                }
+                Ok(activation::VerifyResponse::Pending(_)) => {
+                    // 继续等待
+                    continue;
+                }
+                Err(activation::ActivationError::Expired) => {
+                    log::warn!("激活码已过期，重新获取");
+                    gui.state = "激活码已过期".to_string();
+                    gui.text = "正在重新获取激活码...".to_string();
+                    gui.display_flush().unwrap();
+
+                    // 重新请求激活码
+                    match session.request_activation_code() {
+                        Ok(_) => {
+                            let code = session.get_code();
+                            gui.state = "请在手机上输入激活码".to_string();
+                            gui.text = format!(
+                                "激活码: {}\n\n请打开 EchoKit 控制台\n输入上方 6 位数字完成绑定\n\n有效期 5 分钟",
+                                code
+                            );
+                            gui.display_flush().unwrap();
+                        }
+                        Err(e) => {
+                            log::error!("重新获取激活码失败: {}", e);
+                            gui.state = "获取激活码失败".to_string();
+                            gui.text = format!("{}\n\n按按钮重试", e);
+                            gui.display_flush().unwrap();
+
+                            b.block_on(button.wait_for_falling_edge()).unwrap();
+                            unsafe { esp_idf_svc::sys::esp_restart() }
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!("验证激活失败: {}", e);
+                    gui.state = "激活失败".to_string();
+                    gui.text = format!("{}\n\n按按钮重试", e);
+                    gui.display_flush().unwrap();
+
+                    b.block_on(button.wait_for_falling_edge()).unwrap();
+                    unsafe { esp_idf_svc::sys::esp_restart() }
+                }
+            }
+        }
+
+        // 处理激活结果
+        match activation_success {
+            Some(resp) => {
+                // 保存激活状态到 NVS
+                nvs.set_u8("activated", 1).unwrap();
+
+                // 注意：不使用服务器返回的 proxy_url，因为：
+                // 1. 设备已经有正确的 server_url（用户在配网时输入的）
+                // 2. 服务器返回的 proxy_url 可能是 localhost 或内网地址，不适用于设备
+                // 3. 设备应该继续使用原来配置的服务器地址
+                log::info!(
+                    "激活成功，保持使用原 server_url: {} (服务器返回: {})",
+                    server_url, resp.proxy_url
+                );
+
+                gui.state = "激活成功".to_string();
+                gui.text = format!("设备名称: {}\n\n正在连接服务器...", resp.device_name);
+                gui.display_flush().unwrap();
+
+                std::thread::sleep(std::time::Duration::from_secs(2));
+            }
+            None => {
+                // 超时
+                log::error!("激活超时");
+                gui.state = "激活超时".to_string();
+                gui.text = "请按按钮重试".to_string();
+                gui.display_flush().unwrap();
+
+                b.block_on(button.wait_for_falling_edge()).unwrap();
+                unsafe { esp_idf_svc::sys::esp_restart() }
+            }
+        }
+    }
 
     gui.state = "Connecting to server...".to_string();
     gui.text.clear();
