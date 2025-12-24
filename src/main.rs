@@ -161,9 +161,9 @@ fn main() -> anyhow::Result<()> {
         if !config_missing && !button_pressed && state != 1 {
             ProvisioningMode::None
         } else if button_pressed {
-            // 检测按钮按压时长：短按 -> Web，长按（>2秒）-> BLE
+            // 检测按钮按压时长：短按 -> BLE，长按（>2秒）-> Web
             gui.state = "检测配网模式...".to_string();
-            gui.text = "松开按钮: Web配网\n持续按住2秒: BLE配网".to_string();
+            gui.text = "松开按钮: BLE配网\n持续按住2秒: Web配网".to_string();
             gui.display_flush().unwrap();
 
             let start = std::time::Instant::now();
@@ -172,18 +172,18 @@ fn main() -> anyhow::Result<()> {
             }
 
             if button.is_low() {
-                // 长按超过2秒，使用 BLE 配网
-                log::info!("Long press detected, using BLE provisioning");
-                ProvisioningMode::Ble
-            } else {
-                // 短按，使用 Web 配网
-                log::info!("Short press detected, using Web provisioning");
+                // 长按超过2秒，使用 Web 配网
+                log::info!("Long press detected, using Web provisioning");
                 ProvisioningMode::Web
+            } else {
+                // 短按，使用 BLE 配网
+                log::info!("Short press detected, using BLE provisioning");
+                ProvisioningMode::Ble
             }
         } else {
-            // 配置缺失或 state == 1，默认使用 Web 配网
-            log::info!("Config missing or state=1, using Web provisioning");
-            ProvisioningMode::Web
+            // 配置缺失或 state == 1，默认使用 BLE 配网
+            log::info!("Config missing or state=1, using BLE provisioning");
+            ProvisioningMode::Ble
         }
     };
 
