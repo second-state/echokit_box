@@ -160,7 +160,7 @@ pub async fn main_work<'d>(
     mut server: Server,
     player_tx: audio::PlayerTx,
     mut evt_rx: EventRx,
-    backgroud_buffer: Option<&'d [u8]>,
+    mut gui: crate::ui::ChatUI,
 ) -> anyhow::Result<()> {
     #[derive(PartialEq, Eq)]
     enum State {
@@ -170,10 +170,9 @@ pub async fn main_work<'d>(
         Idle,
     }
 
-    let mut gui = crate::ui::UI::new(backgroud_buffer, crate::boards::flush_display)?;
-
-    gui.state = "Idle".to_string();
-    gui.display_flush().unwrap();
+    gui.set_state("Idle".to_string());
+    gui.set_text("".to_string());
+    gui.flush()?;
 
     let mut state = State::Idle;
 
@@ -205,8 +204,8 @@ pub async fn main_work<'d>(
 
                 if state == State::Listening {
                     state = State::Idle;
-                    gui.state = "Idle".to_string();
-                    gui.display_flush().unwrap();
+                    gui.set_state("Idle".to_string());
+                    gui.flush()?;
                     server.close().await?;
                 } else {
                     let hello_notify = Arc::new(tokio::sync::Notify::new());
@@ -225,8 +224,8 @@ pub async fn main_work<'d>(
                     log::info!("Hello response received");
 
                     state = State::Listening;
-                    gui.state = "Listening...".to_string();
-                    gui.display_flush().unwrap();
+                    gui.set_state("Listening...".to_string());
+                    gui.flush()?;
                 }
             }
             Event::Event(Event::K0_) => {
@@ -234,8 +233,8 @@ pub async fn main_work<'d>(
                 {
                     allow_interrupt = !allow_interrupt;
                     log::info!("Set allow_interrupt to {}", allow_interrupt);
-                    gui.state = format!("Interrupt: {}", allow_interrupt);
-                    gui.display_flush().unwrap();
+                    gui.set_state(format!("Interrupt: {}", allow_interrupt));
+                    gui.flush()?;
                 }
             }
             Event::Event(Event::VOL_UP) => {
@@ -247,8 +246,8 @@ pub async fn main_work<'d>(
                     .send(AudioEvent::VolSet(vol))
                     .map_err(|e| anyhow::anyhow!("Error sending volume set: {e:?}"))?;
                 log::info!("Volume set to {}", vol);
-                gui.state = format!("Volume: {}", vol);
-                gui.display_flush().unwrap();
+                gui.set_state(format!("Volume: {}", vol));
+                gui.flush()?;
             }
             Event::Event(Event::VOL_DOWN) => {
                 vol -= 1;
@@ -259,8 +258,8 @@ pub async fn main_work<'d>(
                     .send(AudioEvent::VolSet(vol))
                     .map_err(|e| anyhow::anyhow!("Error sending volume set: {e:?}"))?;
                 log::info!("Volume set to {}", vol);
-                gui.state = format!("Volume: {}", vol);
-                gui.display_flush().unwrap();
+                gui.set_state(format!("Volume: {}", vol));
+                gui.flush()?;
             }
             Event::Event(Event::VOL_SWITCH) => {
                 vol -= 1;
@@ -271,16 +270,16 @@ pub async fn main_work<'d>(
                     .send(AudioEvent::VolSet(vol))
                     .map_err(|e| anyhow::anyhow!("Error sending volume set: {e:?}"))?;
                 log::info!("Volume set to {}", vol);
-                gui.state = format!("Volume: {}", vol);
-                gui.display_flush().unwrap();
+                gui.set_state(format!("Volume: {}", vol));
+                gui.flush()?;
             }
             Event::Event(Event::YES | Event::K1) => {}
             Event::Event(Event::IDLE) => {
                 log::info!("Received idle event");
                 if state == State::Listening {
                     state = State::Idle;
-                    gui.state = "Idle".to_string();
-                    gui.display_flush().unwrap();
+                    gui.set_state("Idle".to_string());
+                    gui.flush()?;
                     server.close().await?;
                 }
             }
@@ -319,8 +318,8 @@ pub async fn main_work<'d>(
 
                 if submit_audio > 0.6 {
                     state = State::Listening;
-                    gui.state = "Listening...".to_string();
-                    gui.display_flush().unwrap();
+                    gui.set_state("Listening...".to_string());
+                    gui.flush()?;
 
                     server.reconnect_with_retry(3).await?;
 
@@ -377,8 +376,8 @@ pub async fn main_work<'d>(
                     start_submit = false;
                     wait_notify = false;
                     state = State::Waiting;
-                    gui.state = "Waiting...".to_string();
-                    gui.display_flush().unwrap();
+                    gui.set_state("Waiting...".to_string());
+                    gui.flush()?;
                 }
             }
             Event::MicInterruptWaitTimeout => {
@@ -405,20 +404,20 @@ pub async fn main_work<'d>(
                 start_submit = false;
                 wait_notify = false;
                 state = State::Waiting;
-                gui.state = "Waiting...".to_string();
-                gui.display_flush().unwrap();
+                gui.set_state("Waiting...".to_string());
+                gui.flush()?;
             }
             Event::ServerEvent(ServerEvent::ASR { text }) => {
                 log::info!("Received ASR: {:?}", text);
                 state = State::Speaking;
-                gui.state = "ASR".to_string();
-                gui.text = text.trim().to_string();
-                gui.display_flush().unwrap();
+                gui.set_state("ASR".to_string());
+                gui.set_asr(text.trim().to_string());
+                gui.flush()?;
             }
             Event::ServerEvent(ServerEvent::Action { action }) => {
                 log::info!("Received action");
-                gui.state = format!("Action: {}", action);
-                gui.display_flush().unwrap();
+                gui.set_state(format!("Action: {}", action));
+                gui.flush()?;
             }
             Event::ServerEvent(ServerEvent::StartAudio { text }) => {
                 start_audio = true;
@@ -427,9 +426,9 @@ pub async fn main_work<'d>(
                     continue;
                 }
                 log::info!("Received audio start: {:?}", text);
-                gui.state = format!("[{:.2}x]|Speaking...", speed);
-                gui.text = text.trim().to_string();
-                gui.display_flush().unwrap();
+                gui.set_state(format!("[{:.2}x]|Speaking...", speed));
+                gui.set_text(text.trim().to_string());
+                gui.flush()?;
                 player_tx
                     .send(AudioEvent::StartSpeech)
                     .map_err(|e| anyhow::anyhow!("Error sending start: {e:?}"))?;
@@ -452,8 +451,8 @@ pub async fn main_work<'d>(
                 if speed < SPEED_LIMIT {
                     if let Err(e) = player_tx.send(AudioEvent::SpeechChunk(data)) {
                         log::error!("Error sending audio chunk: {:?}", e);
-                        gui.state = "Error on audio chunk".to_string();
-                        gui.display_flush().unwrap();
+                        gui.set_state("Error on audio chunk".to_string());
+                        gui.flush().unwrap();
                     }
                 } else {
                     let data_ = unsafe {
@@ -480,8 +479,8 @@ pub async fn main_work<'d>(
                 if speed < SPEED_LIMIT {
                     if let Err(e) = player_tx.send(AudioEvent::SpeechChunki16(data)) {
                         log::error!("Error sending audio chunk: {:?}", e);
-                        gui.state = "Error on audio chunk".to_string();
-                        gui.display_flush().unwrap();
+                        gui.set_state("Error on audio chunk".to_string());
+                        gui.flush().unwrap();
                     }
                 } else {
                     recv_audio_buffer.extend_from_slice(&data);
@@ -500,16 +499,16 @@ pub async fn main_work<'d>(
                 if recv_audio_buffer.len() > 0 {
                     if let Err(e) = player_tx.send(AudioEvent::SpeechChunki16(recv_audio_buffer)) {
                         log::error!("Error sending audio chunk: {:?}", e);
-                        gui.state = "Error on audio chunk".to_string();
-                        gui.display_flush().unwrap();
+                        gui.set_state("Error on audio chunk".to_string());
+                        gui.flush().unwrap();
                     }
                     recv_audio_buffer = Vec::with_capacity(8192);
                 }
 
                 if let Err(e) = player_tx.send(AudioEvent::EndSpeech(notify.clone())) {
                     log::error!("Error sending audio chunk: {:?}", e);
-                    gui.state = "Error on audio chunk".to_string();
-                    gui.display_flush().unwrap();
+                    gui.set_state("Error on audio chunk".to_string());
+                    gui.flush().unwrap();
                 }
 
                 if need_compute {
@@ -527,8 +526,8 @@ pub async fn main_work<'d>(
             Event::ServerEvent(ServerEvent::EndResponse) => {
                 log::info!("Received request end");
                 state = State::Listening;
-                gui.state = "Listening...".to_string();
-                gui.display_flush().unwrap();
+                gui.set_state("Listening...".to_string());
+                gui.flush().unwrap();
                 recv_audio_buffer.clear();
             }
             Event::ServerEvent(ServerEvent::HelloStart) => {
@@ -546,8 +545,8 @@ pub async fn main_work<'d>(
                 if !init_hello {
                     if let Err(_) = player_tx.send(AudioEvent::SetHello(hello_wav)) {
                         log::error!("Error sending hello end");
-                        gui.state = "Error on hello end".to_string();
-                        gui.display_flush().unwrap();
+                        gui.set_state("Error on hello end".to_string());
+                        gui.flush().unwrap();
                     }
                     hello_wav = Vec::with_capacity(1024 * 30);
                     init_hello = true;
@@ -561,9 +560,9 @@ pub async fn main_work<'d>(
                     init_hello = false;
                     server = Server::new(server.id, url).await?;
                     state = State::Idle;
-                    gui.state = "Idle".to_string();
-                    gui.text = format!("Server URL updated:\n{}", server.url);
-                    gui.display_flush().unwrap();
+                    gui.set_state("Idle".to_string());
+                    gui.set_text(format!("Server URL updated:\n{}", server.url));
+                    gui.flush().unwrap();
                 }
             }
         }

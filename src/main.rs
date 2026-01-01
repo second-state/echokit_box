@@ -21,6 +21,67 @@ struct Setting {
     pass: String,
     server_url: String,
     background_gif: (Vec<u8>, bool), // (data, ended)
+    state: u8,                       // if 1, enter setup mode
+}
+
+impl Setting {
+    fn load_from_nvs(nvs: &esp_idf_svc::nvs::EspDefaultNvs) -> anyhow::Result<Self> {
+        let mut str_buf = [0; 128];
+
+        let ssid = nvs
+            .get_str("ssid", &mut str_buf)
+            .map_err(|e| log::error!("Failed to get ssid: {:?}", e))
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+            .to_string();
+
+        let pass = nvs
+            .get_str("pass", &mut str_buf)
+            .map_err(|e| log::error!("Failed to get pass: {:?}", e))
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+            .to_string();
+
+        static DEFAULT_SERVER_URL: Option<&str> = std::option_env!("DEFAULT_SERVER_URL");
+        log::info!("DEFAULT_SERVER_URL: {:?}", DEFAULT_SERVER_URL);
+
+        let server_url = nvs
+            .get_str("server_url", &mut str_buf)
+            .map_err(|e| log::error!("Failed to get server_url: {:?}", e))
+            .ok()
+            .flatten()
+            .or(DEFAULT_SERVER_URL)
+            .unwrap_or_default()
+            .to_string();
+
+        let background_gif = if nvs.contains("background_gif")? {
+            let mut gif_buf = vec![0; 1024 * 1024];
+            nvs.get_blob("background_gif", &mut gif_buf)?
+                .unwrap_or(ui::DEFAULT_BACKGROUND)
+                .to_vec()
+        } else {
+            ui::DEFAULT_BACKGROUND.to_vec()
+        };
+
+        let state = nvs.get_u8("state")?.unwrap_or(0);
+
+        Ok(Setting {
+            ssid,
+            pass,
+            server_url,
+            background_gif: (background_gif.to_vec(), false),
+            state,
+        })
+    }
+
+    fn need_init(&self) -> bool {
+        self.state == 1
+            || self.ssid.is_empty()
+            || self.pass.is_empty()
+            || self.server_url.is_empty()
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -32,54 +93,12 @@ fn main() -> anyhow::Result<()> {
     let partition = esp_idf_svc::nvs::EspDefaultNvsPartition::take()?;
     let nvs = esp_idf_svc::nvs::EspDefaultNvs::new(partition, "setting", true)?;
 
-    let state = nvs.get_u8("state").ok().flatten().unwrap_or(0);
-
-    let mut str_buf = [0; 128];
-    let ssid = nvs
-        .get_str("ssid", &mut str_buf)
-        .map_err(|e| log::error!("Failed to get ssid: {:?}", e))
-        .ok()
-        .flatten()
-        .unwrap_or_default()
-        .to_string();
-
-    let pass = nvs
-        .get_str("pass", &mut str_buf)
-        .map_err(|e| log::error!("Failed to get pass: {:?}", e))
-        .ok()
-        .flatten()
-        .unwrap_or_default()
-        .to_string();
-
-    static DEFAULT_SERVER_URL: Option<&str> = std::option_env!("DEFAULT_SERVER_URL");
-    log::info!("DEFAULT_SERVER_URL: {:?}", DEFAULT_SERVER_URL);
-
-    let mut server_url = nvs
-        .get_str("server_url", &mut str_buf)
-        .map_err(|e| log::error!("Failed to get server_url: {:?}", e))
-        .ok()
-        .flatten()
-        .or(DEFAULT_SERVER_URL)
-        .unwrap_or_default()
-        .to_string();
-
-    // 1MB buffer for GIF
-    let has_bg = nvs.contains("background_gif").unwrap_or(false);
-    let mut gif_buf = if has_bg {
-        vec![0; 1024 * 1024]
-    } else {
-        Vec::new()
-    };
-
-    let background_gif = nvs
-        .get_blob("background_gif", &mut gif_buf)?
-        .unwrap_or(ui::DEFAULT_BACKGROUND);
-
-    log::info!("SSID: {:?}", ssid);
-    log::info!("PASS: {:?}", pass);
-    log::info!("Server URL: {:?}", server_url);
-
+    let mut setting = Setting::load_from_nvs(&nvs)?;
     nvs.set_u8("state", 0).unwrap();
+
+    log::info!("SSID: {:?}", setting.ssid);
+    log::info!("PASS: {:?}", setting.pass);
+    log::info!("Server URL: {:?}", setting.server_url);
 
     log_heap();
 
@@ -88,7 +107,25 @@ fn main() -> anyhow::Result<()> {
 
     crate::start_hal!(peripherals, evt_tx);
 
-    let _ = ui::backgroud(&background_gif, boards::flush_display);
+    let start_ui = if setting.background_gif.0.is_empty() {
+        log::info!("No background GIF found, using default start UI");
+        ui::StartUI {
+            flush_fn: boards::flush_display,
+            display_target: ui::new_display_target(),
+        }
+    } else {
+        // ui::StartUI::new_with_gif(
+        //     ui::new_display_target(),
+        //     boards::flush_display,
+        //     &setting.background_gif.0,
+        // )?
+        ui::StartUI::new_with_png(
+            ui::new_display_target(),
+            boards::flush_display,
+            ui::LM_PNG,
+            3_000,
+        )?
+    };
 
     // Configures the button
     let mut button = esp_idf_svc::hal::gpio::PinDriver::input(peripherals.pins.gpio0)?;
@@ -98,8 +135,6 @@ fn main() -> anyhow::Result<()> {
     let b = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
-
-    let mut gui = ui::UI::new(None, boards::flush_display).unwrap();
 
     log_heap();
 
@@ -125,29 +160,28 @@ fn main() -> anyhow::Result<()> {
         std::thread::sleep(std::time::Duration::from_millis(2000));
     }
 
-    let need_init = {
-        button.is_low() || state == 1 || ssid.is_empty() || pass.is_empty() || server_url.is_empty()
-    };
+    let need_init = button.is_low() || setting.need_init();
+
     if need_init {
-        gif_buf.clear();
-        let setting = Arc::new(Mutex::new((
-            Setting {
-                ssid,
-                pass,
-                server_url,
-                background_gif: (gif_buf, false), // 1MB
-            },
-            nvs,
-        )));
+        let mut config_ui = ui::new_config_ui(start_ui, "https://echokit.dev/setup/")?;
+
+        let esp_wifi = esp_idf_svc::wifi::EspWifi::new(peripherals.modem, sysloop, None)?;
+        let mac = esp_wifi.sta_netif().get_mac()?;
+        let dev_id = format!(
+            "{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+            mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
+        );
+
+        setting.background_gif.0.clear();
+        let setting = Arc::new(Mutex::new((setting, nvs)));
 
         let ble_addr = bt::bt(setting.clone(), evt_tx).unwrap();
         log_heap();
 
         let version = env!("CARGO_PKG_VERSION");
 
-        gui.state = "Please setup device by bt".to_string();
-        gui.text = format!("Goto https://echokit.dev/setup/ to set up the device.\nDevice Name: EchoKit-{}\nVersion: {}", ble_addr, version);
-        gui.display_qrcode("https://echokit.dev/setup/").unwrap();
+        config_ui.set_info( format!("Goto https://echokit.dev/setup/ to set up the device.\nDevice Name: EchoKit-{}\nVersion: {}", ble_addr, version));
+        config_ui.flush()?;
 
         #[cfg(feature = "boards")]
         {
@@ -179,8 +213,8 @@ fn main() -> anyhow::Result<()> {
         {
             let mut setting = setting.lock().unwrap();
             if setting.0.background_gif.1 {
-                gui.text = "Testing background GIF...".to_string();
-                gui.display_flush().unwrap();
+                config_ui.set_info("Testing background GIF...".to_string());
+                config_ui.flush()?;
 
                 let mut new_gif = Vec::new();
                 std::mem::swap(&mut setting.0.background_gif.0, &mut new_gif);
@@ -188,8 +222,8 @@ fn main() -> anyhow::Result<()> {
                 let _ = ui::backgroud(&new_gif, boards::flush_display);
                 log::info!("Background GIF set from NVS");
 
-                gui.text = "Background GIF set OK".to_string();
-                gui.display_flush().unwrap();
+                config_ui.set_info("Background GIF set OK".to_string());
+                config_ui.flush()?;
 
                 setting
                     .1
@@ -203,15 +237,21 @@ fn main() -> anyhow::Result<()> {
         unsafe { esp_idf_svc::sys::esp_restart() }
     }
 
-    gui.state = "Connecting to wifi...".to_string();
-    gui.text.clear();
-    gui.display_flush().unwrap();
+    let mut chat_ui = ui::new_chat_ui(start_ui)?;
 
-    let _wifi = network::wifi(&ssid, &pass, peripherals.modem, sysloop.clone());
+    chat_ui.set_state("Connecting to wifi...".to_string());
+    chat_ui.flush()?;
+
+    let _wifi = network::wifi(
+        &setting.ssid,
+        &setting.pass,
+        peripherals.modem,
+        sysloop.clone(),
+    );
     if _wifi.is_err() {
-        gui.state = "Failed to connect to wifi".to_string();
-        gui.text = "Press K0 to open settings".to_string();
-        gui.display_flush().unwrap();
+        chat_ui.set_state("Failed to connect to wifi".to_string());
+        chat_ui.set_text("Press K0 to open settings".to_string());
+        chat_ui.flush()?;
         b.block_on(button.wait_for_falling_edge()).unwrap();
         nvs.set_u8("state", 1).unwrap();
         unsafe { esp_idf_svc::sys::esp_restart() }
@@ -226,18 +266,21 @@ fn main() -> anyhow::Result<()> {
         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
     );
 
-    gui.state = "Connecting to server...".to_string();
-    gui.text.clear();
-    gui.display_flush().unwrap();
+    chat_ui.set_state("Connecting to server...".to_string());
+    chat_ui.set_text("".to_string());
+    chat_ui.flush()?;
 
     log_heap();
 
-    gui.state = "Failed to connect to server".to_string();
-    gui.text = format!("Please check your server URL: {server_url}\nPress K0 to open settings");
-    let server = b.block_on(ws::Server::new(dev_id, server_url));
+    chat_ui.set_state("Failed to connect to server".to_string());
+    chat_ui.set_text(format!(
+        "Please check your server URL: {}\nPress K0 to open settings",
+        setting.server_url
+    ));
+    let server = b.block_on(ws::Server::new(dev_id, setting.server_url));
     if server.is_err() {
         log::info!("Failed to connect to server: {:?}", server.err());
-        gui.display_flush().unwrap();
+        chat_ui.flush()?;
         b.block_on(button.wait_for_falling_edge()).unwrap();
         nvs.set_u8("state", 1).unwrap();
         unsafe { esp_idf_svc::sys::esp_restart() }
@@ -247,7 +290,7 @@ fn main() -> anyhow::Result<()> {
 
     crate::start_audio_workers!(peripherals, rx1, evt_tx.clone(), &b);
 
-    let ws_task = app::main_work(server, tx1, evt_rx, Some(background_gif));
+    let ws_task = app::main_work(server, tx1, evt_rx, chat_ui);
 
     b.spawn(async move {
         loop {
