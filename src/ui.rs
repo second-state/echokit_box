@@ -1,5 +1,3 @@
-use std::u8;
-
 use embedded_graphics::{
     framebuffer::{buffer_size, Framebuffer},
     image::GetPixel,
@@ -30,8 +28,8 @@ pub const AVATAR_PNG: &[u8] = include_bytes!("../assets/96x96.png");
 pub type FlushDisplayFn =
     fn(color_data: &[u8], x_start: i32, y_start: i32, x_end: i32, y_end: i32) -> i32;
 
-pub fn backgroud(gif: &[u8], f: FlushDisplayFn) -> Result<(), std::convert::Infallible> {
-    let image = tinygif::Gif::<ColorFormat>::from_slice(gif).unwrap();
+pub fn background(gif: &[u8], f: FlushDisplayFn) -> anyhow::Result<()> {
+    use image::AnimationDecoder;
 
     // Create a new framebuffer
     let mut display = Box::new(Framebuffer::<
@@ -42,40 +40,38 @@ pub fn backgroud(gif: &[u8], f: FlushDisplayFn) -> Result<(), std::convert::Infa
         DISPLAY_HEIGHT,
         { buffer_size::<ColorFormat>(DISPLAY_WIDTH, DISPLAY_HEIGHT) },
     >::new());
-
-    let ht = image::ImageReader::with_format(std::io::Cursor::new(LM_PNG), image::ImageFormat::Png);
-    let img = ht.decode().unwrap().to_rgb8();
-
-    let p = img
-        .pixels()
-        .map(|p| {
-            ColorFormat::new(
-                p[0] / (u8::MAX / ColorFormat::MAX_R),
-                p[1] / (u8::MAX / ColorFormat::MAX_G),
-                p[2] / (u8::MAX / ColorFormat::MAX_B),
-            )
-        })
-        .zip(display.bounding_box().points())
-        .map(|(color, point)| Pixel(point, color));
-
-    p.draw(display.as_mut()).unwrap();
-    f(
-        display.data(),
-        0,
-        0,
-        DISPLAY_WIDTH as _,
-        DISPLAY_HEIGHT as _,
-    );
-
-    std::thread::sleep(std::time::Duration::from_millis(30 * 1000));
-
     display.clear(ColorFormat::WHITE)?;
 
-    for frame in image.frames() {
-        if !frame.is_transparent {
-            display.clear(ColorFormat::WHITE)?;
+    let img_gif = image::codecs::gif::GifDecoder::new(std::io::Cursor::new(gif))?;
+
+    for ff in img_gif.into_frames() {
+        let frame = ff?;
+
+        let delay = frame.delay();
+
+        let img = frame.into_buffer();
+
+        for (x, y, p) in img.enumerate_pixels() {
+            if x >= display.size().width || y >= display.size().height || p[3] == 0 {
+                continue;
+            }
+
+            display.set_pixel(
+                Point {
+                    x: x as i32,
+                    y: y as i32,
+                },
+                ColorFormat::new(
+                    p[0] / (u8::MAX / ColorFormat::MAX_R),
+                    p[1] / (u8::MAX / ColorFormat::MAX_G),
+                    p[2] / (u8::MAX / ColorFormat::MAX_B),
+                ),
+            );
         }
-        frame.draw(display.as_mut())?;
+
+        let now = std::time::Instant::now();
+        let delay = std::time::Duration::from(delay);
+
         f(
             display.data(),
             0,
@@ -83,8 +79,8 @@ pub fn backgroud(gif: &[u8], f: FlushDisplayFn) -> Result<(), std::convert::Infa
             DISPLAY_WIDTH as _,
             DISPLAY_HEIGHT as _,
         );
-        let delay_ms = frame.delay_centis * 10;
-        std::thread::sleep(std::time::Duration::from_millis(delay_ms as u64));
+
+        std::thread::sleep(std::time::Instant::now() - (now + delay));
     }
 
     Ok(())
@@ -318,18 +314,21 @@ impl ImageArea {
         );
         let img = ht.decode().unwrap().to_rgb8();
 
-        let pixels: Vec<Pixel<ColorFormat>> = img
-            .pixels()
-            .map(|p| {
+        let mut pixels = Vec::with_capacity((area.size.width * area.size.height) as usize);
+
+        for (x, y, p) in img.enumerate_pixels() {
+            if x >= area.size.width || y >= area.size.height {
+                continue;
+            }
+            pixels.push(Pixel(
+                Point::new(area.top_left.x + x as i32, area.top_left.y + y as i32),
                 ColorFormat::new(
                     p[0] / (u8::MAX / ColorFormat::MAX_R),
                     p[1] / (u8::MAX / ColorFormat::MAX_G),
                     p[2] / (u8::MAX / ColorFormat::MAX_B),
-                )
-            })
-            .zip(area.points())
-            .map(|(color, point)| Pixel(point, color))
-            .collect();
+                ),
+            ));
+        }
 
         Ok(Self {
             area,
@@ -394,14 +393,37 @@ impl StartUI {
         flush_fn: FlushDisplayFn,
         gif: &[u8],
     ) -> anyhow::Result<Self> {
-        let image = tinygif::Gif::<ColorFormat>::from_slice(gif)
-            .map_err(|e| anyhow::anyhow!("Load background GIF Fail: {:?}", e))?;
+        use image::AnimationDecoder;
+        let img_gif = image::codecs::gif::GifDecoder::new(std::io::Cursor::new(gif)).unwrap();
 
-        for frame in image.frames() {
-            if !frame.is_transparent {
-                display_target.clear(ColorFormat::WHITE)?;
-            }
-            frame.draw(display_target.as_mut())?;
+        let frames = img_gif.into_frames();
+        for ff in frames {
+            let frame = ff.unwrap();
+
+            let delay = frame.delay();
+
+            let img = frame.into_buffer();
+            let pixels = img.enumerate_pixels().map(|(x, y, p)| {
+                let (x, y) = if p[3] == 0 {
+                    (-1, -1)
+                } else {
+                    (x as i32, y as i32)
+                };
+
+                Pixel(
+                    Point { x, y },
+                    ColorFormat::new(
+                        p[0] / (u8::MAX / ColorFormat::MAX_R),
+                        p[1] / (u8::MAX / ColorFormat::MAX_G),
+                        p[2] / (u8::MAX / ColorFormat::MAX_B),
+                    ),
+                )
+            });
+
+            display_target.draw_iter(pixels)?;
+
+            let now = std::time::Instant::now();
+
             flush_fn(
                 display_target.data(),
                 0,
@@ -409,8 +431,10 @@ impl StartUI {
                 DISPLAY_WIDTH as _,
                 DISPLAY_HEIGHT as _,
             );
-            let delay_ms = frame.delay_centis * 10;
-            std::thread::sleep(std::time::Duration::from_millis(delay_ms as u64));
+
+            let delay = std::time::Duration::from(delay);
+
+            std::thread::sleep(std::time::Instant::now() - (now + delay));
         }
 
         Ok(Self {
@@ -429,17 +453,16 @@ impl StartUI {
             image::ImageReader::with_format(std::io::Cursor::new(png), image::ImageFormat::Png);
         let img = ht.decode().unwrap().to_rgb8();
 
-        let p = img
-            .pixels()
-            .map(|p| {
+        let p = img.enumerate_pixels().map(|(x, y, p)| {
+            Pixel(
+                Point::new(x as i32, y as i32),
                 ColorFormat::new(
                     p[0] / (u8::MAX / ColorFormat::MAX_R),
                     p[1] / (u8::MAX / ColorFormat::MAX_G),
                     p[2] / (u8::MAX / ColorFormat::MAX_B),
-                )
-            })
-            .zip(display_target.bounding_box().points())
-            .map(|(color, point)| Pixel(point, color));
+                ),
+            )
+        });
 
         p.draw(display_target.as_mut())?;
 

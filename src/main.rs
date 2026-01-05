@@ -107,6 +107,8 @@ fn main() -> anyhow::Result<()> {
 
     crate::start_hal!(peripherals, evt_tx);
 
+    ui::background(&setting.background_gif.0, boards::flush_display).unwrap();
+
     let start_ui = if setting.background_gif.0.is_empty() {
         log::info!("No background GIF found, using default start UI");
         ui::StartUI {
@@ -219,7 +221,7 @@ fn main() -> anyhow::Result<()> {
                 let mut new_gif = Vec::new();
                 std::mem::swap(&mut setting.0.background_gif.0, &mut new_gif);
 
-                let _ = ui::backgroud(&new_gif, boards::flush_display);
+                let _ = ui::background(&new_gif, boards::flush_display);
                 log::info!("Background GIF set from NVS");
 
                 config_ui.set_info("Background GIF set OK".to_string());

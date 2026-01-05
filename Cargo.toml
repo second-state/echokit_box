@@ -58,8 +58,11 @@ esp32-nimble = "0.11.1"
 embedded-graphics = "0.8.1"
 embedded-text = "0.7.2"
 u8g2-fonts = { version = "0.6.0", features = ["embedded_graphics_textstyle"] }
-tinygif = "0.0.4"
-image = { version = "0.25.6", default-features = false, features = ["png"] }
+image = { version = "0.25.6", default-features = false, features = [
+    "png",
+    "gif",
+    "webp",
+] }
 
 
 futures-util = { version = "0.3.31", features = ["sink"] }
