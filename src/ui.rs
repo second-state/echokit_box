@@ -23,7 +23,7 @@ pub const DEFAULT_BACKGROUND: &[u8] = include_bytes!("../assets/ht.gif");
 use crate::boards::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
 
 pub const LM_PNG: &[u8] = include_bytes!("../assets/lm_320x240.png");
-pub const AVATAR_PNG: &[u8] = include_bytes!("../assets/96x96.png");
+pub const AVATAR_GIF: &[u8] = include_bytes!("../assets/xx.gif");
 
 pub type FlushDisplayFn =
     fn(color_data: &[u8], x_start: i32, y_start: i32, x_end: i32, y_end: i32) -> i32;
@@ -382,6 +382,57 @@ impl ImageArea {
     }
 }
 
+pub struct DynamicImage<const N: usize> {
+    pub display_index: usize,
+    pub image_data: Vec<Vec<Pixel<ColorFormat>>>,
+}
+
+impl<const N: usize> DynamicImage<N> {
+    pub fn new_from_gif(area: Rectangle, gif_data: &[u8]) -> anyhow::Result<Self> {
+        use image::AnimationDecoder;
+        let img_gif = image::codecs::gif::GifDecoder::new(std::io::Cursor::new(gif_data))?;
+
+        let frames = img_gif.into_frames();
+        let mut image_data: Vec<Vec<Pixel<ColorFormat>>> = Vec::new();
+        for ff in frames.take(N) {
+            let frame = ff?;
+
+            let img = frame.into_buffer();
+            let mut pixels = Vec::with_capacity((area.size.width * area.size.height) as usize);
+
+            for (x, y, p) in img.enumerate_pixels() {
+                if x >= area.size.width || y >= area.size.height || p[3] == 0 {
+                    continue;
+                }
+                pixels.push(Pixel(
+                    Point::new(area.top_left.x + x as i32, area.top_left.y + y as i32),
+                    ColorFormat::new(
+                        p[0] / (u8::MAX / ColorFormat::MAX_R),
+                        p[1] / (u8::MAX / ColorFormat::MAX_G),
+                        p[2] / (u8::MAX / ColorFormat::MAX_B),
+                    ),
+                ));
+            }
+
+            image_data.push(pixels);
+        }
+
+        Ok(Self {
+            display_index: 0,
+            image_data,
+        })
+    }
+
+    pub fn set_index(&mut self, index: usize) {
+        self.display_index = index % N;
+    }
+
+    pub fn render(&self, display: &mut DisplayTarget) -> anyhow::Result<()> {
+        display.draw_iter(self.image_data[self.display_index].iter().cloned())?;
+        Ok(())
+    }
+}
+
 pub struct StartUI {
     pub flush_fn: FlushDisplayFn,
     pub display_target: Box<DisplayTarget>,
@@ -486,7 +537,7 @@ impl StartUI {
 pub struct ChatUI {
     state_area: (DisplayArea, bool),
     asr_area: (DisplayArea, bool),
-    header_area: (ImageArea, bool),
+    header_area: (DynamicImage<4>, bool),
     content_area: (DisplayArea, bool),
 
     pub flush_fn: FlushDisplayFn,
@@ -497,7 +548,7 @@ impl ChatUI {
     pub fn new(
         state_area: DisplayArea,
         asr_area: DisplayArea,
-        header_area: ImageArea,
+        header_area: DynamicImage<4>,
         content_area: DisplayArea,
         display_target: Box<DisplayTarget>,
         flush_fn: FlushDisplayFn,
@@ -527,6 +578,11 @@ impl ChatUI {
         self.content_area.1 = true;
     }
 
+    pub fn set_header(&mut self, index: usize) {
+        self.header_area.0.set_index(index);
+        self.header_area.1 = true;
+    }
+
     pub fn flush(&mut self) -> anyhow::Result<()> {
         if self.state_area.1 {
             (self.state_area.0.render_fn)(&self.state_area.0, self.display_target.as_mut())?;
@@ -544,7 +600,7 @@ impl ChatUI {
         }
 
         if self.header_area.1 {
-            (self.header_area.0.render_fn)(&self.header_area.0, self.display_target.as_mut())?;
+            self.header_area.0.render(self.display_target.as_mut())?;
             self.header_area.1 = false;
         }
 
@@ -680,7 +736,7 @@ pub fn new_chat_ui(start: StartUI) -> anyhow::Result<ChatUI> {
     );
 
     let header_area_box = Rectangle::new(bounding_box.top_left, Size::new(96, 96));
-    let header_area = ImageArea::new_from_png(header_area_box, AVATAR_PNG)?;
+    let header_area = DynamicImage::new_from_gif(header_area_box, AVATAR_GIF)?;
 
     Ok(ChatUI::new(
         state_area,

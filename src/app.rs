@@ -14,6 +14,7 @@ pub enum Event {
     ServerEvent(ServerEvent),
     MicAudioChunk(Vec<i16>),
     MicAudioEnd,
+    Vowel(u8),
     MicInterruptWaitTimeout,
     #[cfg_attr(not(feature = "extra_server"), allow(unused))]
     ServerUrl(String),
@@ -22,7 +23,6 @@ pub enum Event {
 #[allow(unused)]
 impl Event {
     pub const IDLE: &'static str = "idle";
-    pub const GAIA: &'static str = "gaia";
     pub const NO: &'static str = "no";
     pub const YES: &'static str = "yes";
     pub const NOISE: &'static str = "noise";
@@ -84,6 +84,9 @@ async fn select_evt(
                 },
                 Event::MicInterruptWaitTimeout => {
                     log::info!("[Select] Received MicInterruptWaitTimeout");
+                }
+                Event::Vowel(v) => {
+                    log::debug!("[Select] Received Vowel: {}", v);
                 }
                 Event::ServerUrl(url) => {
                     log::info!("[Select] Received ServerUrl: {}", url);
@@ -199,7 +202,7 @@ pub async fn main_work<'d>(
     while let Some(evt) = select_evt(&mut evt_rx, &mut server, &notify, wait_notify, timeout).await
     {
         match evt {
-            Event::Event(Event::GAIA | Event::K0) => {
+            Event::Event(Event::K0) => {
                 log::info!("Received event: k0");
 
                 if state == State::Listening {
@@ -208,14 +211,14 @@ pub async fn main_work<'d>(
                     gui.flush()?;
                     server.close().await?;
                 } else {
+                    server.reconnect_with_retry(3).await?;
+
                     let hello_notify = Arc::new(tokio::sync::Notify::new());
                     player_tx
                         .send(AudioEvent::Hello(hello_notify.clone()))
                         .map_err(|e| anyhow::anyhow!("Error sending hello: {e:?}"))?;
                     log::info!("Waiting for hello response");
                     let _ = hello_notify.notified().await;
-
-                    server.reconnect_with_retry(3).await?;
 
                     start_submit = false;
                     submit_audio = 0.0;
@@ -289,6 +292,10 @@ pub async fn main_work<'d>(
             }
             Event::Event(evt) => {
                 log::info!("Received event: {:?}", evt);
+            }
+            Event::Vowel(v) => {
+                gui.set_header(v as usize);
+                gui.flush()?;
             }
             Event::MicAudioChunk(data) if state == State::Listening => {
                 submit_audio += data.len() as f32 / 16000.0;
@@ -433,35 +440,7 @@ pub async fn main_work<'d>(
                     .send(AudioEvent::StartSpeech)
                     .map_err(|e| anyhow::anyhow!("Error sending start: {e:?}"))?;
             }
-            Event::ServerEvent(ServerEvent::AudioChunk { data }) => {
-                log::debug!("Received audio chunk");
-                if state != State::Speaking {
-                    log::debug!("Received audio chunk while not speaking");
-                    continue;
-                }
-
-                if need_compute {
-                    if start_audio {
-                        metrics.reset();
-                        start_audio = false;
-                    }
-                    metrics.add_data(data.len());
-                }
-
-                if speed < SPEED_LIMIT {
-                    if let Err(e) = player_tx.send(AudioEvent::SpeechChunk(data)) {
-                        log::error!("Error sending audio chunk: {:?}", e);
-                        gui.set_state("Error on audio chunk".to_string());
-                        gui.flush().unwrap();
-                    }
-                } else {
-                    let data_ = unsafe {
-                        std::slice::from_raw_parts(data.as_ptr() as *const i16, data.len() / 2)
-                    };
-                    recv_audio_buffer.extend_from_slice(data_);
-                }
-            }
-            Event::ServerEvent(ServerEvent::AudioChunki16 { data }) => {
+            Event::ServerEvent(ServerEvent::AudioChunki16 { data, vowel }) => {
                 log::debug!("Received audio chunk");
                 if state != State::Speaking {
                     log::debug!("Received audio chunk while not speaking");
@@ -477,7 +456,8 @@ pub async fn main_work<'d>(
                 }
 
                 if speed < SPEED_LIMIT {
-                    if let Err(e) = player_tx.send(AudioEvent::SpeechChunki16(data)) {
+                    if let Err(e) = player_tx.send(AudioEvent::SpeechChunki16WithVowel(data, vowel))
+                    {
                         log::error!("Error sending audio chunk: {:?}", e);
                         gui.set_state("Error on audio chunk".to_string());
                         gui.flush().unwrap();
@@ -554,6 +534,14 @@ pub async fn main_work<'d>(
             }
 
             Event::ServerEvent(ServerEvent::StartVideo | ServerEvent::EndVideo) => {}
+            Event::ServerEvent(ServerEvent::AudioChunk { .. }) => {
+                log::warn!("Received deprecated AudioChunk, please use AudioChunki16 instead");
+            }
+            Event::ServerEvent(ServerEvent::AudioChunkWithVowel { .. }) => {
+                log::warn!(
+                    "Received deprecated AudioChunkWithVowel, please use AudioChunki16 instead"
+                );
+            }
             Event::ServerUrl(url) => {
                 log::info!("Received ServerUrl: {}", url);
                 if url != server.url {
