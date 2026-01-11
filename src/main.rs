@@ -113,29 +113,8 @@ fn main() -> anyhow::Result<()> {
 
     crate::start_hal!(peripherals, evt_tx);
 
-    // ui::background(&setting.background_gif.0, boards::flush_display).unwrap();
     let mut framebuffer = Box::new(boards::ui::DisplayBuffer::new(ui::ColorFormat::WHITE));
     framebuffer.flush()?;
-
-    // let start_ui = if setting.background_gif.0.is_empty() {
-    //     log::info!("No background GIF found, using default start UI");
-    //     ui::StartUI {
-    //         flush_fn: boards::flush_display,
-    //         display_target: ui::new_display_target(),
-    //     }
-    // } else {
-    //     // ui::StartUI::new_with_gif(
-    //     //     ui::new_display_target(),
-    //     //     boards::flush_display,
-    //     //     &setting.background_gif.0,
-    //     // )?
-    //     ui::StartUI::new_with_png(
-    //         ui::new_display_target(),
-    //         boards::flush_display,
-    //         ui::LM_PNG,
-    //         3_000,
-    //     )?
-    // };
 
     crate::ui::display_gif(framebuffer.as_mut(), &setting.background_gif.0).unwrap();
 
@@ -234,7 +213,7 @@ fn main() -> anyhow::Result<()> {
                 let mut new_gif = Vec::new();
                 std::mem::swap(&mut setting.0.background_gif.0, &mut new_gif);
 
-                let _ = ui::background(&new_gif, boards::flush_display);
+                crate::ui::display_gif(framebuffer.as_mut(), &new_gif).unwrap();
                 log::info!("Background GIF set from NVS");
 
                 config_ui.set_info("Background GIF set OK".to_string());
