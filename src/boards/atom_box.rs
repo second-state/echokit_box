@@ -393,7 +393,7 @@ pub mod ui {
                 content_chunks: Vec::new(),
 
                 avatar: avatar,
-                avatar_updated: false,
+                avatar_updated: true,
                 avatar_chunks: Vec::new(),
             }
         }
