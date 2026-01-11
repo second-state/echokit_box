@@ -232,7 +232,7 @@ fn main() -> anyhow::Result<()> {
         unsafe { esp_idf_svc::sys::esp_restart() }
     }
 
-    let mut chat_ui = boards::ui::new_chat_ui::<4>(framebuffer.as_mut())?;
+    let mut chat_ui = boards::ui::new_chat_ui::<6>(framebuffer.as_mut())?;
 
     chat_ui.set_state("Connecting to wifi...".to_string());
     chat_ui.render_to_target(framebuffer.as_mut())?;

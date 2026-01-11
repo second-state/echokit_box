@@ -13,7 +13,7 @@ pub type ColorFormat = Rgb565;
 pub const DEFAULT_BACKGROUND: &[u8] = include_bytes!("../assets/ht.gif");
 
 pub const LM_PNG: &[u8] = include_bytes!("../assets/lm_320x240.png");
-pub const AVATAR_GIF: &[u8] = include_bytes!("../assets/xx.gif");
+pub const AVATAR_GIF: &[u8] = include_bytes!("../assets/avatar.gif");
 
 // TextRenderer + CharacterStyle
 #[derive(Debug, Clone)]
@@ -392,7 +392,12 @@ impl<const N: usize> DynamicImage<N> {
     }
 
     pub fn set_index(&mut self, index: usize) {
-        self.display_index = index % N;
+        let new_idx = index % N;
+        if new_idx == self.display_index {
+            self.display_index = 0;
+        } else {
+            self.display_index = index % N;
+        }
     }
 
     pub fn render<D: DrawTarget<Color = ColorFormat>>(

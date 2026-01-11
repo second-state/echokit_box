@@ -494,6 +494,7 @@ fn audio_task_run(
                     send_buffer.push_i16(&items);
                 }
                 AudioEvent::EndSpeech(sender) => {
+                    send_buffer.push_vowel(0);
                     send_buffer.push_back_end_speech(sender);
                 }
                 AudioEvent::VolSet(vol) => {
