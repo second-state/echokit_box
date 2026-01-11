@@ -80,6 +80,10 @@ pub fn background(gif: &[u8], f: FlushDisplayFn) -> anyhow::Result<()> {
             DISPLAY_HEIGHT as _,
         );
 
+        let e = now.elapsed();
+
+        log::info!("GIF frame rendered in {:?}", e);
+
         std::thread::sleep(std::time::Instant::now() - (now + delay));
     }
 
@@ -88,7 +92,7 @@ pub fn background(gif: &[u8], f: FlushDisplayFn) -> anyhow::Result<()> {
 
 // TextRenderer + CharacterStyle
 #[derive(Debug, Clone)]
-struct MyTextStyle(U8g2TextStyle<ColorFormat>, i32);
+pub struct MyTextStyle(pub U8g2TextStyle<ColorFormat>, pub i32);
 
 impl TextRenderer for MyTextStyle {
     type Color = ColorFormat;
@@ -171,7 +175,106 @@ type DisplayTarget = Framebuffer<
     { buffer_size::<ColorFormat>(DISPLAY_WIDTH, DISPLAY_HEIGHT) },
 >;
 
-fn alpha_mix(source: ColorFormat, target: ColorFormat, alpha: f32) -> ColorFormat {
+pub trait DisplayTargetDrive:
+    DrawTarget<Color = ColorFormat> + GetPixel<Color = ColorFormat>
+{
+    fn new(color: ColorFormat) -> Self;
+    fn flush(&mut self) -> anyhow::Result<()>;
+    fn fix_background(&mut self) -> anyhow::Result<()>;
+}
+
+pub fn display_gif<D: DisplayTargetDrive>(
+    display_target: &mut D,
+    gif: &[u8],
+) -> anyhow::Result<()> {
+    use image::AnimationDecoder;
+    let img_gif = image::codecs::gif::GifDecoder::new(std::io::Cursor::new(gif))?;
+
+    let mut frames = img_gif.into_frames();
+    let mut ff = frames.next();
+
+    loop {
+        if ff.is_none() {
+            break;
+        }
+
+        let frame = ff.unwrap()?;
+
+        let delay = frame.delay();
+
+        let img = frame.into_buffer();
+        let pixels = img.enumerate_pixels().map(|(x, y, p)| {
+            let (x, y) = if p[3] == 0 {
+                (-1, -1)
+            } else {
+                (x as i32, y as i32)
+            };
+
+            Pixel(
+                Point { x, y },
+                ColorFormat::new(
+                    p[0] / (u8::MAX / ColorFormat::MAX_R),
+                    p[1] / (u8::MAX / ColorFormat::MAX_G),
+                    p[2] / (u8::MAX / ColorFormat::MAX_B),
+                ),
+            )
+        });
+
+        display_target
+            .draw_iter(pixels)
+            .map_err(|_| anyhow::anyhow!("Failed to draw GIF frame"))?;
+
+        let now = std::time::Instant::now();
+        ff = frames.next();
+        if ff.is_none() {
+            display_target.fix_background()?;
+        }
+
+        display_target.flush()?;
+
+        let delay = std::time::Duration::from(delay);
+
+        std::thread::sleep(std::time::Instant::now() - (now + delay));
+    }
+
+    Ok(())
+}
+
+pub fn display_png<D: DisplayTargetDrive>(
+    display_target: &mut D,
+    png: &[u8],
+    timeout: std::time::Duration,
+) -> anyhow::Result<()> {
+    let img_reader =
+        image::ImageReader::with_format(std::io::Cursor::new(png), image::ImageFormat::Png);
+
+    let img = img_reader.decode().unwrap().to_rgb8();
+
+    let p = img.enumerate_pixels().map(|(x, y, p)| {
+        Pixel(
+            Point::new(x as i32, y as i32),
+            ColorFormat::new(
+                p[0] / (u8::MAX / ColorFormat::MAX_R),
+                p[1] / (u8::MAX / ColorFormat::MAX_G),
+                p[2] / (u8::MAX / ColorFormat::MAX_B),
+            ),
+        )
+    });
+
+    display_target
+        .draw_iter(p)
+        .map_err(|_| anyhow::anyhow!("Failed to draw PNG image"))?;
+
+    display_target.fix_background()?;
+
+    display_target.flush()?;
+
+    std::thread::sleep(timeout);
+
+    Ok(())
+}
+
+pub fn alpha_mix(source: ColorFormat, target: ColorFormat, alpha: f32) -> ColorFormat {
     ColorFormat::new(
         ((1. - alpha) * source.r() as f32 + alpha * target.r() as f32) as u8,
         ((1. - alpha) * source.g() as f32 + alpha * target.g() as f32) as u8,
@@ -235,7 +338,6 @@ impl qrcode::render::Canvas for QrCanvas {
 
 pub struct DisplayArea {
     area: Rectangle,
-    background: Vec<Pixel<ColorFormat>>,
     text: String,
     render_fn: fn(&DisplayArea, &mut DisplayTarget) -> anyhow::Result<()>,
 }
@@ -249,15 +351,14 @@ impl DisplayArea {
     ) -> Self {
         Self {
             area,
-            background,
             text,
             render_fn,
         }
     }
 }
 
-pub fn get_background_pixels(
-    display: &DisplayTarget,
+pub fn get_background_pixels<T: GetPixel<Color = ColorFormat>>(
+    display: &T,
     area: Rectangle,
     background_style: PrimitiveStyle<ColorFormat>,
     alpha: f32,
@@ -291,8 +392,8 @@ pub fn new_display_target() -> Box<DisplayTarget> {
 
 pub struct ImageArea {
     area: Rectangle,
-    image_data: Vec<Pixel<ColorFormat>>,
-    render_fn: fn(&ImageArea, &mut DisplayTarget) -> anyhow::Result<()>,
+    pub image_data: Vec<Pixel<ColorFormat>>,
+    pub render_fn: fn(&ImageArea, &mut DisplayTarget) -> anyhow::Result<()>,
 }
 
 impl ImageArea {
@@ -337,8 +438,8 @@ impl ImageArea {
         })
     }
 
-    pub fn new_from_qr_code(area: Rectangle, qr_context: &str) -> anyhow::Result<Self> {
-        let code = qrcode::QrCode::new(qr_context).unwrap();
+    pub fn new_from_qr_code(area: Rectangle, qr_content: &str) -> anyhow::Result<Self> {
+        let code = qrcode::QrCode::new(qr_content).unwrap();
         let ((width, height), code_pixel) = code
             .render::<QrPixel>()
             .quiet_zone(true)
@@ -370,7 +471,10 @@ impl ImageArea {
             .collect();
 
         Ok(Self {
-            area,
+            area: Rectangle {
+                top_left: area.top_left + Point::new(offset_x as i32, offset_y as i32),
+                size: Size::new(width, height),
+            },
             image_data: pixels,
             render_fn: Self::default_render,
         })
@@ -427,7 +531,10 @@ impl<const N: usize> DynamicImage<N> {
         self.display_index = index % N;
     }
 
-    pub fn render(&self, display: &mut DisplayTarget) -> anyhow::Result<()> {
+    pub fn render<D: DrawTarget<Color = ColorFormat>>(
+        &self,
+        display: &mut D,
+    ) -> Result<(), D::Error> {
         display.draw_iter(self.image_data[self.display_index].iter().cloned())?;
         Ok(())
     }
@@ -642,7 +749,6 @@ pub fn new_chat_ui(start: StartUI) -> anyhow::Result<ChatUI> {
         ),
         String::new(),
         |area, display| {
-            area.background.iter().cloned().draw(display)?;
             Text::with_alignment(
                 &area.text,
                 area.area.center(),
@@ -676,7 +782,6 @@ pub fn new_chat_ui(start: StartUI) -> anyhow::Result<ChatUI> {
         ),
         String::new(),
         |area, display| {
-            area.background.iter().cloned().draw(display)?;
             Text::with_alignment(
                 &area.text,
                 area.area.center(),
@@ -711,7 +816,6 @@ pub fn new_chat_ui(start: StartUI) -> anyhow::Result<ChatUI> {
         ),
         String::new(),
         |area, display| {
-            area.background.iter().cloned().draw(display)?;
             let textbox_style = embedded_text::style::TextBoxStyleBuilder::new()
                 .height_mode(embedded_text::style::HeightMode::FitToText)
                 .alignment(embedded_text::alignment::HorizontalAlignment::Center)
@@ -820,7 +924,6 @@ pub fn new_config_ui(start: StartUI, qr_content: &str) -> anyhow::Result<Configu
         ),
         String::new(),
         |area, display| {
-            area.background.iter().cloned().draw(display)?;
             Text::with_alignment(
                 &area.text,
                 area.area.top_left + Point::new(area.area.size.width as i32 / 2, 32),

@@ -24,11 +24,11 @@ default = ["boards"]
 
 experimental = ["esp-idf-svc/experimental"]
 
-boards = ["voice_interrupt"]
+boards = ["voice_interrupt", "base_ui"]
 _no_default = []
 box = ["_no_default", "voice_interrupt"]
-cube = ["_no_default", "voice_interrupt"]
-cube2 = ["_no_default", "voice_interrupt"]
+cube = ["_no_default", "voice_interrupt", "base_ui"]
+cube2 = ["_no_default", "voice_interrupt", "base_ui"]
 nfc_cube2 = ["cube2", "mfrc522", "exio"]
 
 mfrc522 = ["i2c", "dep:ndef", "extra_server"]
@@ -38,6 +38,7 @@ extra_server = []
 i2c = []
 
 voice_interrupt = []
+base_ui = []
 
 [dependencies]
 log = "0.4"

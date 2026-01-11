@@ -1,6 +1,12 @@
 use std::sync::{Arc, Mutex};
 
+use embedded_graphics::{
+    prelude::{Dimensions, RgbColor},
+    Drawable,
+};
 use esp_idf_svc::eventloop::EspSystemEventLoop;
+
+use crate::ui::DisplayTargetDrive;
 
 mod app;
 mod audio;
@@ -107,27 +113,31 @@ fn main() -> anyhow::Result<()> {
 
     crate::start_hal!(peripherals, evt_tx);
 
-    ui::background(&setting.background_gif.0, boards::flush_display).unwrap();
+    // ui::background(&setting.background_gif.0, boards::flush_display).unwrap();
+    let mut framebuffer = Box::new(boards::ui::DisplayBuffer::new(ui::ColorFormat::WHITE));
+    framebuffer.flush()?;
 
-    let start_ui = if setting.background_gif.0.is_empty() {
-        log::info!("No background GIF found, using default start UI");
-        ui::StartUI {
-            flush_fn: boards::flush_display,
-            display_target: ui::new_display_target(),
-        }
-    } else {
-        // ui::StartUI::new_with_gif(
-        //     ui::new_display_target(),
-        //     boards::flush_display,
-        //     &setting.background_gif.0,
-        // )?
-        ui::StartUI::new_with_png(
-            ui::new_display_target(),
-            boards::flush_display,
-            ui::LM_PNG,
-            3_000,
-        )?
-    };
+    // let start_ui = if setting.background_gif.0.is_empty() {
+    //     log::info!("No background GIF found, using default start UI");
+    //     ui::StartUI {
+    //         flush_fn: boards::flush_display,
+    //         display_target: ui::new_display_target(),
+    //     }
+    // } else {
+    //     // ui::StartUI::new_with_gif(
+    //     //     ui::new_display_target(),
+    //     //     boards::flush_display,
+    //     //     &setting.background_gif.0,
+    //     // )?
+    //     ui::StartUI::new_with_png(
+    //         ui::new_display_target(),
+    //         boards::flush_display,
+    //         ui::LM_PNG,
+    //         3_000,
+    //     )?
+    // };
+
+    crate::ui::display_gif(framebuffer.as_mut(), &setting.background_gif.0).unwrap();
 
     // Configures the button
     let mut button = esp_idf_svc::hal::gpio::PinDriver::input(peripherals.pins.gpio0)?;
@@ -165,7 +175,7 @@ fn main() -> anyhow::Result<()> {
     let need_init = button.is_low() || setting.need_init();
 
     if need_init {
-        let mut config_ui = ui::new_config_ui(start_ui, "https://echokit.dev/setup/")?;
+        // let mut config_ui = ui::new_config_ui(start_ui, "https://echokit.dev/setup/")?;
 
         let esp_wifi = esp_idf_svc::wifi::EspWifi::new(peripherals.modem, sysloop, None)?;
         let mac = esp_wifi.sta_netif().get_mac()?;
@@ -182,8 +192,10 @@ fn main() -> anyhow::Result<()> {
 
         let version = env!("CARGO_PKG_VERSION");
 
-        config_ui.set_info( format!("Goto https://echokit.dev/setup/ to set up the device.\nDevice Name: EchoKit-{}\nVersion: {}", ble_addr, version));
-        config_ui.flush()?;
+        let mut config_ui = boards::ui::ConfiguresUI::new(framebuffer.bounding_box(), "https://echokit.dev/setup/", format!("Goto https://echokit.dev/setup/ to set up the device.\nDevice Name: EchoKit-{}\nVersion: {}", ble_addr, version)).unwrap();
+
+        config_ui.draw(framebuffer.as_mut())?;
+        framebuffer.flush()?;
 
         #[cfg(feature = "boards")]
         {
@@ -216,7 +228,8 @@ fn main() -> anyhow::Result<()> {
             let mut setting = setting.lock().unwrap();
             if setting.0.background_gif.1 {
                 config_ui.set_info("Testing background GIF...".to_string());
-                config_ui.flush()?;
+                config_ui.draw(framebuffer.as_mut())?;
+                framebuffer.flush()?;
 
                 let mut new_gif = Vec::new();
                 std::mem::swap(&mut setting.0.background_gif.0, &mut new_gif);
@@ -225,7 +238,8 @@ fn main() -> anyhow::Result<()> {
                 log::info!("Background GIF set from NVS");
 
                 config_ui.set_info("Background GIF set OK".to_string());
-                config_ui.flush()?;
+                config_ui.draw(framebuffer.as_mut())?;
+                framebuffer.flush()?;
 
                 setting
                     .1
@@ -239,10 +253,11 @@ fn main() -> anyhow::Result<()> {
         unsafe { esp_idf_svc::sys::esp_restart() }
     }
 
-    let mut chat_ui = ui::new_chat_ui(start_ui)?;
+    let mut chat_ui = boards::ui::new_chat_ui::<4>(framebuffer.as_mut())?;
 
     chat_ui.set_state("Connecting to wifi...".to_string());
-    chat_ui.flush()?;
+    chat_ui.render_to_target(framebuffer.as_mut())?;
+    framebuffer.flush()?;
 
     let _wifi = network::wifi(
         &setting.ssid,
@@ -253,7 +268,9 @@ fn main() -> anyhow::Result<()> {
     if _wifi.is_err() {
         chat_ui.set_state("Failed to connect to wifi".to_string());
         chat_ui.set_text("Press K0 to open settings".to_string());
-        chat_ui.flush()?;
+        chat_ui.render_to_target(framebuffer.as_mut())?;
+        framebuffer.flush()?;
+
         b.block_on(button.wait_for_falling_edge()).unwrap();
         nvs.set_u8("state", 1).unwrap();
         unsafe { esp_idf_svc::sys::esp_restart() }
@@ -270,7 +287,8 @@ fn main() -> anyhow::Result<()> {
 
     chat_ui.set_state("Connecting to server...".to_string());
     chat_ui.set_text("".to_string());
-    chat_ui.flush()?;
+    chat_ui.render_to_target(framebuffer.as_mut())?;
+    framebuffer.flush()?;
 
     log_heap();
 
@@ -282,7 +300,8 @@ fn main() -> anyhow::Result<()> {
     let server = b.block_on(ws::Server::new(dev_id, setting.server_url));
     if server.is_err() {
         log::info!("Failed to connect to server: {:?}", server.err());
-        chat_ui.flush()?;
+        chat_ui.render_to_target(framebuffer.as_mut())?;
+        framebuffer.flush()?;
         b.block_on(button.wait_for_falling_edge()).unwrap();
         nvs.set_u8("state", 1).unwrap();
         unsafe { esp_idf_svc::sys::esp_restart() }
@@ -292,7 +311,7 @@ fn main() -> anyhow::Result<()> {
 
     crate::start_audio_workers!(peripherals, rx1, evt_tx.clone(), &b);
 
-    let ws_task = app::main_work(server, tx1, evt_rx, chat_ui);
+    let ws_task = app::main_work(server, tx1, evt_rx, &mut framebuffer, &mut chat_ui);
 
     b.spawn(async move {
         loop {

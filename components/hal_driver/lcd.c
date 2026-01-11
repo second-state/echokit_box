@@ -24,6 +24,8 @@
 
 static const char *TAG = "LCD";
 esp_lcd_panel_handle_t panel_handle = NULL; /* LCD句柄 */
+uint16_t *lcd_dma_buffer = NULL;
+
 uint32_t g_back_color = 0xFFFF;
 lcd_obj_t lcd_dev;
 
@@ -129,23 +131,23 @@ void lcd_color_fill(uint16_t sx, uint16_t sy, uint16_t ex, uint16_t ey, uint16_t
     uint16_t height = ey - sy;
     uint32_t buf_index = 0;
 
-    uint16_t *buffer = heap_caps_malloc(width * sizeof(uint16_t), MALLOC_CAP_INTERNAL);
+    // uint16_t *buffer = heap_caps_malloc(width * sizeof(uint16_t), MALLOC_CAP_INTERNAL);
 
     for (uint16_t y_index = 0; y_index < height; y_index++)
     {
         for (uint16_t x_index = 0; x_index < width; x_index++)
         {
-            buffer[x_index] = color[buf_index];
+            lcd_dma_buffer[x_index] = color[buf_index];
             buf_index++;
         }
 
         for (uint16_t i = 0; i < width; i += 80)
         {
-            esp_lcd_panel_draw_bitmap(panel_handle, sx + i, sy + y_index, sx + i + 80, sy + y_index + 1, &buffer[i]);
+            esp_lcd_panel_draw_bitmap(panel_handle, sx + i, sy + y_index, sx + i + 80, sy + y_index + 1, &lcd_dma_buffer[i]);
         }
     }
     /* 释放内存 */
-    heap_caps_free(buffer);
+    // heap_caps_free(buffer);
 }
 
 /**
@@ -284,7 +286,8 @@ void lcd_init(lcd_cfg_t lcd_config)
         },
         .bus_width = 8,
         .max_transfer_bytes = lcd_dev.pwidth * lcd_dev.pheight * sizeof(uint16_t),
-        .psram_trans_align = 64,
+        // .psram_trans_align = 64,
+        .dma_burst_size = 64,
         .sram_trans_align = 4,
     };
     ESP_ERROR_CHECK(esp_lcd_new_i80_bus(&bus_config, &i80_bus)); /* 新建80并口总线 */
@@ -293,7 +296,7 @@ void lcd_init(lcd_cfg_t lcd_config)
         /* 80并口配置 */
         .cs_gpio_num = lcd_dev.cs,
         .pclk_hz = (10 * 1000 * 1000),
-        .trans_queue_depth = 10,
+        .trans_queue_depth = 15,
         .dc_levels = {
             .dc_idle_level = 0,
             .dc_cmd_level = 0,
@@ -327,4 +330,6 @@ void lcd_init(lcd_cfg_t lcd_config)
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true)); /* 启动屏幕 */
     lcd_clear(WHITE);                                               /* 默认填充白色 */
     LCD_BL(1);                                                      /* 打开背光 */
+
+    lcd_dma_buffer = esp_lcd_i80_alloc_draw_buffer(io_handle, lcd_dev.pwidth * sizeof(uint16_t), MALLOC_CAP_DMA);
 }
