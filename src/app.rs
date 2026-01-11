@@ -215,6 +215,10 @@ pub async fn main_work<'d, const N: usize>(
                     framebuffer.flush()?;
                     server.close().await?;
                 } else {
+                    gui.set_state("Connecting...".to_string());
+                    gui.render_to_target(framebuffer)?;
+                    framebuffer.flush()?;
+
                     server.reconnect_with_retry(3).await?;
 
                     let hello_notify = Arc::new(tokio::sync::Notify::new());
@@ -231,7 +235,7 @@ pub async fn main_work<'d, const N: usize>(
                     log::info!("Hello response received");
 
                     state = State::Listening;
-                    gui.set_state("Listening...".to_string());
+                    gui.set_state("Ready".to_string());
                     gui.render_to_target(framebuffer)?;
                     framebuffer.flush()?;
                 }
@@ -323,6 +327,10 @@ pub async fn main_work<'d, const N: usize>(
                     start_submit = true;
                     server.send_client_audio_chunk_i16(audio_buffer).await?;
                     audio_buffer = Vec::with_capacity(8192);
+
+                    gui.set_state("Listening...".to_string());
+                    gui.render_to_target(framebuffer)?;
+                    framebuffer.flush()?;
                 }
             }
             Event::MicAudioChunk(data) if state == State::Speaking && allow_interrupt => {
@@ -526,7 +534,7 @@ pub async fn main_work<'d, const N: usize>(
             Event::ServerEvent(ServerEvent::EndResponse) => {
                 log::info!("Received request end");
                 state = State::Listening;
-                gui.set_state("Listening...".to_string());
+                gui.set_state("Ready".to_string());
                 gui.render_to_target(framebuffer)?;
                 framebuffer.flush()?;
                 recv_audio_buffer.clear();
