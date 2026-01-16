@@ -7,6 +7,10 @@ use esp_idf_svc::sys::esp_sr;
 
 const SAMPLE_RATE: u32 = 16000;
 
+pub static mut AFE_LINEAR_GAIN: f32 = 1.0;
+pub static mut AGC_TARGET_LEVEL_DBFS: i32 = 3;
+pub static mut AGC_COMPRESSION_GAIN_DB: i32 = 9;
+
 unsafe fn afe_init() -> (
     *mut esp_sr::esp_afe_sr_iface_t,
     *mut esp_sr::esp_afe_sr_data_t,
@@ -29,7 +33,9 @@ unsafe fn afe_init() -> (
     afe_config.vad_mode = esp_sr::vad_mode_t_VAD_MODE_4;
 
     afe_config.agc_init = true;
-    afe_config.afe_linear_gain = 2.0;
+    afe_config.afe_linear_gain = AFE_LINEAR_GAIN;
+    afe_config.agc_target_level_dbfs = AGC_TARGET_LEVEL_DBFS;
+    afe_config.agc_compression_gain_db = AGC_COMPRESSION_GAIN_DB;
 
     afe_config.aec_init = true;
     afe_config.aec_mode = esp_sr::aec_mode_t_AEC_MODE_VOIP_HIGH_PERF;

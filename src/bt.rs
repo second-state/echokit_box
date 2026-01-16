@@ -8,6 +8,9 @@ const PASS_ID: BleUuid = uuid128!("a987ab18-a940-421a-a1d7-b94ee22bccbe");
 const SERVER_URL_ID: BleUuid = uuid128!("cef520a9-bcb5-4fc6-87f7-82804eee2b20");
 const BACKGROUND_GIF_ID: BleUuid = uuid128!("d1f3b2c4-5e6f-4a7b-8c9d-0e1f2a3b4c5d");
 const RESET_ID: BleUuid = uuid128!("f0e1d2c3-b4a5-6789-0abc-def123456789");
+const AFE_LINEAR_GAIN_ID: BleUuid = uuid128!("a1b2c3d4-e5f6-4789-0abc-def123456789");
+const AGC_TARGET_LEVEL_ID: BleUuid = uuid128!("b2c3d4e5-f6a7-4890-1bcd-ef2345678901");
+const AGC_COMPRESSION_GAIN_ID: BleUuid = uuid128!("c3d4e5f6-a7b8-4901-2cde-f34567890123");
 
 pub fn bt(
     device_id: &str,
@@ -103,6 +106,7 @@ pub fn bt(
     let setting = setting.clone();
     let setting_ = setting.clone();
     let setting_gif = setting.clone();
+    let setting_afe = setting.clone(); // Extra clone for AFE characteristics
 
     let server_url_characteristic = service.lock().create_characteristic(
         SERVER_URL_ID,
@@ -165,6 +169,107 @@ pub fn bt(
             log::warn!("Invalid reset command received via BLE.");
         }
     });
+
+    // AFE linear gain characteristic
+    let setting1 = setting_afe.clone();
+    let setting2 = setting_afe.clone();
+    let afe_linear_gain_characteristic = service.lock().create_characteristic(
+        AFE_LINEAR_GAIN_ID,
+        NimbleProperties::READ | NimbleProperties::WRITE,
+    );
+    afe_linear_gain_characteristic
+        .lock()
+        .on_read(move |c, _| {
+            log::info!("Read from AFE linear gain characteristic");
+            let setting = setting1.lock().unwrap();
+            let afe_line_gain_str = format!("{}", setting.0.afe_linear_gain);
+            c.set_value(afe_line_gain_str.as_bytes());
+        })
+        .on_write(move |args| {
+            let data = args.recv_data();
+            let gain = String::from_utf8(data.to_vec())
+                .map(|s| s.parse::<f32>().ok())
+                .ok()
+                .flatten();
+
+            if let Some(gain) = gain {
+                log::info!("New AFE linear gain: {}", gain);
+                let mut setting = setting2.lock().unwrap();
+                if let Err(e) = setting.1.set_blob("afe_linear_gain", &gain.to_le_bytes()) {
+                    log::error!("Failed to save AFE linear gain to NVS: {:?}", e);
+                    args.reject();
+                } else {
+                    setting.0.afe_linear_gain = gain;
+                }
+            } else {
+                log::error!("Failed to parse new AFE linear gain from bytes.");
+                args.reject();
+            }
+        });
+
+    // AGC target level characteristic
+    let setting1 = setting_afe.clone();
+    let setting2 = setting_afe.clone();
+    let agc_target_level_characteristic = service.lock().create_characteristic(
+        AGC_TARGET_LEVEL_ID,
+        NimbleProperties::READ | NimbleProperties::WRITE,
+    );
+    agc_target_level_characteristic
+        .lock()
+        .on_read(move |c, _| {
+            log::info!("Read from AGC target level characteristic");
+            let setting = setting1.lock().unwrap();
+            c.set_value(setting.0.agc_target_level_dbfs.to_le_bytes().as_ref());
+        })
+        .on_write(move |args| {
+            let data = args.recv_data();
+            if data.len() == 4 {
+                let level = i32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                log::info!("New AGC target level: {}", level);
+                let mut setting = setting2.lock().unwrap();
+                if let Err(e) = setting.1.set_i32("agc_tl_dbfs", level) {
+                    log::error!("Failed to save AGC target level to NVS: {:?}", e);
+                    args.reject();
+                } else {
+                    setting.0.agc_target_level_dbfs = level;
+                }
+            } else {
+                log::error!("Failed to parse new AGC target level from bytes.");
+                args.reject();
+            }
+        });
+
+    // AGC compression gain characteristic
+    let setting1 = setting_afe.clone();
+    let setting2 = setting_afe.clone();
+    let agc_compression_gain_characteristic = service.lock().create_characteristic(
+        AGC_COMPRESSION_GAIN_ID,
+        NimbleProperties::READ | NimbleProperties::WRITE,
+    );
+    agc_compression_gain_characteristic
+        .lock()
+        .on_read(move |c, _| {
+            log::info!("Read from AGC compression gain characteristic");
+            let setting = setting1.lock().unwrap();
+            c.set_value(setting.0.agc_compression_gain_db.to_le_bytes().as_ref());
+        })
+        .on_write(move |args| {
+            let data = args.recv_data();
+            if data.len() == 4 {
+                let gain = i32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                log::info!("New AGC compression gain: {}", gain);
+                let mut setting = setting2.lock().unwrap();
+                if let Err(e) = setting.1.set_i32("agc_cg_db", gain) {
+                    log::error!("Failed to save AGC compression gain to NVS: {:?}", e);
+                    args.reject();
+                } else {
+                    setting.0.agc_compression_gain_db = gain;
+                }
+            } else {
+                log::error!("Failed to parse new AGC compression gain from bytes.");
+                args.reject();
+            }
+        });
 
     ble_advertising.lock().set_data(
         BLEAdvertisementData::new()

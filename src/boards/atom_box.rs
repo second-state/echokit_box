@@ -9,10 +9,7 @@ pub const AFE_AEC_OFFSET: usize = 512;
 pub fn afe_config(afe_config: &mut esp_idf_svc::sys::esp_sr::afe_config_t) {
     afe_config.agc_init = true;
     afe_config.agc_mode = esp_idf_svc::sys::esp_sr::afe_agc_mode_t_AFE_AGC_MODE_WEBRTC;
-    afe_config.afe_linear_gain = 1.5;
-    afe_config.agc_target_level_dbfs = 1;
-    afe_config.agc_compression_gain_db = 15;
-    afe_config.ns_init = false;
+    afe_config.ns_init = true;
 }
 
 pub fn audio_init(_i2c: I2C0, _sda: Gpio48, _scl: Gpio45) {

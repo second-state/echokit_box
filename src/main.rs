@@ -28,6 +28,10 @@ struct Setting {
     server_url: String,
     background_gif: (Vec<u8>, bool), // (data, ended)
     state: u8,                       // if 1, enter setup mode
+    // AFE parameters
+    afe_linear_gain: f32,
+    agc_target_level_dbfs: i32,
+    agc_compression_gain_db: i32,
 }
 
 impl Setting {
@@ -91,12 +95,44 @@ impl Setting {
 
         let state = nvs.get_u8("state")?.unwrap_or(0);
 
+        let mut afe_linear_gain_buf = [0u8; 4];
+        let afe_linear_gain = nvs
+            .get_blob("afe_linear_gain", &mut afe_linear_gain_buf)
+            .map_err(|e| {
+                log::error!("Failed to get afe_linear_gain: {:?}", e);
+            })
+            .ok()
+            .flatten()
+            .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            .unwrap_or(unsafe { audio::AFE_LINEAR_GAIN });
+
+        let agc_target_level_dbfs = nvs
+            .get_i32("agc_tl_dbfs")
+            .map_err(|e| {
+                log::error!("Failed to get agc_target_level_dbfs: {:?}", e);
+            })
+            .ok()
+            .flatten()
+            .unwrap_or(unsafe { audio::AGC_TARGET_LEVEL_DBFS });
+
+        let agc_compression_gain_db = nvs
+            .get_i32("agc_cg_db")
+            .map_err(|e| {
+                log::error!("Failed to get agc_compression_gain_db: {:?}", e);
+            })
+            .ok()
+            .flatten()
+            .unwrap_or(unsafe { audio::AGC_COMPRESSION_GAIN_DB });
+
         Ok(Setting {
             ssid,
             pass,
             server_url,
             background_gif: (background_gif.to_vec(), false),
             state,
+            afe_linear_gain,
+            agc_target_level_dbfs,
+            agc_compression_gain_db,
         })
     }
 
@@ -248,6 +284,12 @@ fn main() -> anyhow::Result<()> {
         }
 
         unsafe { esp_idf_svc::sys::esp_restart() }
+    }
+
+    unsafe {
+        audio::AFE_LINEAR_GAIN = setting.afe_linear_gain;
+        audio::AGC_TARGET_LEVEL_DBFS = setting.agc_target_level_dbfs;
+        audio::AGC_COMPRESSION_GAIN_DB = setting.agc_compression_gain_db;
     }
 
     let mut chat_ui = boards::ui::new_chat_ui::<6>(framebuffer.as_mut())?;
