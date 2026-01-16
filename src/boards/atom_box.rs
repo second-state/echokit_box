@@ -292,7 +292,6 @@ pub mod ui {
         }
 
         fn flush(&mut self) -> anyhow::Result<()> {
-            let now = std::time::Instant::now();
             unsafe {
                 let panel_handle = std::mem::transmute(esp_idf_svc::sys::hal_driver::panel_handle);
 
@@ -329,13 +328,6 @@ pub mod ui {
                         self.buffers[i].clone_from(&self.background_buffers[i]);
                     }
                 }
-
-                log::info!(
-                    "Display flush took {:?} for {} chunks, {} resumed",
-                    now.elapsed(),
-                    self.diff_indexs.len(),
-                    self.resume_indexs.len()
-                );
 
                 self.diff_indexs.clear();
                 self.resume_indexs.clear();
@@ -434,14 +426,6 @@ pub mod ui {
         pub fn render_to_target(&mut self, target: &mut BoxFrameBuffer) -> anyhow::Result<()> {
             let bounding_box = target.bounding_box();
             let (state_area_box, asr_area_box, content_area_box) = Self::layout(bounding_box);
-
-            log::info!(
-                "draw ChatUI {} {} {} {}",
-                self.state_text_updated,
-                self.asr_text_updated,
-                self.content_updated,
-                self.avatar_updated
-            );
 
             let mut start_i = 0;
 
@@ -634,26 +618,6 @@ pub mod ui {
 
             Ok(())
         }
-    }
-}
-
-pub fn flush_display(color_data: &[u8], x_start: i32, y_start: i32, x_end: i32, y_end: i32) -> i32 {
-    // if write area size > 80, lcd will display wrong data
-
-    debug_assert_eq!(
-        x_end - x_start,
-        DISPLAY_WIDTH as i32,
-        "x_end - x_start must be equal to DISPLAY_WIDTH"
-    );
-    unsafe {
-        esp_idf_svc::sys::hal_driver::lcd_color_fill(
-            x_start as u16,
-            y_start as u16,
-            x_end as u16,
-            y_end as u16,
-            color_data.as_ptr() as _,
-        );
-        0
     }
 }
 
