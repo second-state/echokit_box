@@ -10,11 +10,11 @@ const BACKGROUND_GIF_ID: BleUuid = uuid128!("d1f3b2c4-5e6f-4a7b-8c9d-0e1f2a3b4c5
 const RESET_ID: BleUuid = uuid128!("f0e1d2c3-b4a5-6789-0abc-def123456789");
 
 pub fn bt(
+    device_id: &str,
     setting: Arc<Mutex<(super::Setting, esp_idf_svc::nvs::EspDefaultNvs)>>,
     evt_tx: tokio::sync::mpsc::Sender<crate::app::Event>,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<()> {
     let ble_device = esp32_nimble::BLEDevice::take();
-    let ble_addr = ble_device.get_addr()?.to_string();
     let ble_advertising = ble_device.get_advertising();
 
     let server = ble_device.get_server();
@@ -168,9 +168,9 @@ pub fn bt(
 
     ble_advertising.lock().set_data(
         BLEAdvertisementData::new()
-            .name(&format!("EchoKit-{}", ble_addr))
+            .name(&format!("EchoKit-{}", device_id))
             .add_service_uuid(SERVICE_ID),
     )?;
     ble_advertising.lock().start()?;
-    Ok(ble_addr)
+    Ok(())
 }

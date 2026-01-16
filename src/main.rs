@@ -166,12 +166,12 @@ fn main() -> anyhow::Result<()> {
         setting.background_gif.0.clear();
         let setting = Arc::new(Mutex::new((setting, nvs)));
 
-        let ble_addr = bt::bt(setting.clone(), evt_tx).unwrap();
+        bt::bt(&dev_id, setting.clone(), evt_tx).unwrap();
         log_heap();
 
         let version = env!("CARGO_PKG_VERSION");
 
-        let mut config_ui = boards::ui::ConfiguresUI::new(framebuffer.bounding_box(), "https://echokit.dev/setup/", format!("Goto https://echokit.dev/setup/ to set up the device.\nDevice Name: EchoKit-{}\nVersion: {}", ble_addr, version)).unwrap();
+        let mut config_ui = boards::ui::ConfiguresUI::new(framebuffer.bounding_box(), "https://echokit.dev/setup/", format!("Goto https://echokit.dev/setup/ to set up the device.\nDevice Name: EchoKit-{}\nVersion: {}", dev_id, version)).unwrap();
 
         config_ui.draw(framebuffer.as_mut())?;
         framebuffer.flush()?;
