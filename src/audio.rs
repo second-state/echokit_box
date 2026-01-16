@@ -131,6 +131,12 @@ impl AFE {
                     result.vad_cache,
                     result.vad_cache_size as usize / 2,
                 );
+                // log::info!(
+                //     "Using vad cache len: {} {}ms",
+                //     data_.len(),
+                //     data_.len() * 1000 / SAMPLE_RATE as usize
+                // );
+                // 352ms
                 data.extend_from_slice(data_);
             }
             if data_size > 0 {

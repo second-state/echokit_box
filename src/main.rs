@@ -121,7 +121,7 @@ fn main() -> anyhow::Result<()> {
     // Configures the button
     let mut button = esp_idf_svc::hal::gpio::PinDriver::input(peripherals.pins.gpio0)?;
     button.set_pull(esp_idf_svc::hal::gpio::Pull::Up)?;
-    button.set_interrupt_type(esp_idf_svc::hal::gpio::InterruptType::PosEdge)?;
+    button.set_interrupt_type(esp_idf_svc::hal::gpio::InterruptType::AnyEdge)?;
 
     let b = tokio::runtime::Builder::new_current_thread()
         .enable_all()
