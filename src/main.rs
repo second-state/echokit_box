@@ -63,10 +63,28 @@ impl Setting {
             .to_string();
 
         let background_gif = if nvs.contains("background_gif")? {
-            let mut gif_buf = vec![0; 1024 * 1024];
-            nvs.get_blob("background_gif", &mut gif_buf)?
-                .unwrap_or(ui::DEFAULT_BACKGROUND)
-                .to_vec()
+            let background_gif_size = nvs
+                .blob_len("background_gif")
+                .map_err(|e| log::error!("Failed to get background_gif size: {:?}", e))
+                .ok()
+                .flatten()
+                .unwrap_or(1024 * 1024);
+
+            let mut gif_buf = vec![0; background_gif_size];
+            let gif_buf_ = nvs
+                .get_blob("background_gif", &mut gif_buf)?
+                .unwrap_or(ui::DEFAULT_BACKGROUND);
+
+            if gif_buf_.len() != background_gif_size {
+                log::warn!(
+                    "Background GIF size mismatch: expected {}, got {}",
+                    background_gif_size,
+                    gif_buf_.len()
+                );
+                gif_buf_.to_vec()
+            } else {
+                gif_buf
+            }
         } else {
             ui::DEFAULT_BACKGROUND.to_vec()
         };
