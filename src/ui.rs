@@ -9,10 +9,10 @@ use u8g2_fonts::U8g2TextStyle;
 
 pub type ColorFormat = Rgb565;
 
-// pub const DEFAULT_BACKGROUND: &[u8] = include_bytes!("../assets/echokit.gif");
-pub const DEFAULT_BACKGROUND: &[u8] = include_bytes!("../assets/ht.gif");
+pub const DEFAULT_BACKGROUND: &[u8] = include_bytes!("../assets/echokit.gif");
+// pub const DEFAULT_BACKGROUND: &[u8] = include_bytes!("../assets/ht.gif");
 
-pub const LM_PNG: &[u8] = include_bytes!("../assets/lm_320x240.png");
+// pub const LM_PNG: &[u8] = include_bytes!("../assets/lm_320x240.png");
 pub const AVATAR_GIF: &[u8] = include_bytes!("../assets/avatar.gif");
 
 // TextRenderer + CharacterStyle
