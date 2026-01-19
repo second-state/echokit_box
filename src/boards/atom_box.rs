@@ -576,7 +576,7 @@ pub mod ui {
 
             Ok(Self {
                 qr_area: ImageArea::new_from_qr_code(qr_area_box, qr_content)?,
-                info: info.to_string(),
+                info,
             })
         }
 
