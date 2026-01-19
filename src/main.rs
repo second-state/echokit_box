@@ -183,25 +183,30 @@ fn main() -> anyhow::Result<()> {
 
     log_heap();
 
+    let mut chat_ui = boards::ui::new_chat_ui::<6>(framebuffer.as_mut())?;
+
     #[cfg(feature = "extra_server")]
     {
-        gui.state = "Initializing...".to_string();
-        gui.text = "Loading Server URL...".to_string();
-        gui.display_flush().unwrap();
+        chat_ui.set_state("Initializing...".to_string());
+        chat_ui.set_text("Loading Server URL...".to_string());
+
+        chat_ui.render_to_target(framebuffer.as_mut())?;
+        framebuffer.flush()?;
 
         while let Some(event) = evt_rx.blocking_recv() {
             if let app::Event::ServerUrl(url) = event {
                 log::info!("Received ServerUrl event: {}", url);
                 if !url.is_empty() {
-                    server_url = url;
+                    setting.server_url = url;
                 }
                 break;
             }
         }
 
         std::thread::sleep(std::time::Duration::from_millis(500));
-        gui.text = format!("Server URL: {}\nContinuing...", server_url);
-        gui.display_flush().unwrap();
+        chat_ui.set_text(format!("Server URL: {}\nContinuing...", setting.server_url));
+        chat_ui.render_to_target(framebuffer.as_mut())?;
+        framebuffer.flush()?;
         std::thread::sleep(std::time::Duration::from_millis(2000));
     }
 
@@ -291,8 +296,6 @@ fn main() -> anyhow::Result<()> {
         audio::AGC_TARGET_LEVEL_DBFS = setting.agc_target_level_dbfs;
         audio::AGC_COMPRESSION_GAIN_DB = setting.agc_compression_gain_db;
     }
-
-    let mut chat_ui = boards::ui::new_chat_ui::<6>(framebuffer.as_mut())?;
 
     chat_ui.set_state("Connecting to wifi...".to_string());
     chat_ui.render_to_target(framebuffer.as_mut())?;
