@@ -217,3 +217,383 @@ pub fn set_backlight<'d>(
     ledc_driver.set_duty(duty)?;
     Ok(())
 }
+
+#[cfg(not(feature = "custom_ui"))]
+pub mod ui {
+    use super::*;
+
+    use embedded_graphics::{
+        framebuffer::{buffer_size, Framebuffer},
+        image::GetPixel,
+        pixelcolor::raw::{LittleEndian, RawU16},
+        prelude::*,
+        primitives::{PrimitiveStyleBuilder, Rectangle},
+        text::{Alignment, Text},
+        Drawable,
+    };
+    use u8g2_fonts::U8g2TextStyle;
+
+    use crate::ui::{ColorFormat, DisplayTargetDrive, DynamicImage, ImageArea};
+
+    pub type DisplayBuffer = FrameBuffer;
+
+    type Framebuffer_ = Framebuffer<
+        ColorFormat,
+        RawU16,
+        LittleEndian,
+        DISPLAY_WIDTH,
+        DISPLAY_HEIGHT,
+        { buffer_size::<ColorFormat>(DISPLAY_WIDTH, DISPLAY_HEIGHT) },
+    >;
+
+    struct PixelsTarget<'a> {
+        pixels: &'a mut Vec<Pixel<ColorFormat>>,
+        bounding_box: Rectangle,
+    }
+
+    impl Dimensions for PixelsTarget<'_> {
+        fn bounding_box(&self) -> Rectangle {
+            self.bounding_box
+        }
+    }
+
+    impl DrawTarget for PixelsTarget<'_> {
+        type Color = ColorFormat;
+        type Error = core::convert::Infallible;
+
+        fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
+        where
+            I: IntoIterator<Item = embedded_graphics::Pixel<Self::Color>>,
+        {
+            self.pixels.extend(pixels);
+            Ok(())
+        }
+    }
+
+    pub struct FrameBuffer {
+        buffers: Box<Framebuffer_>,
+        background_buffers: Box<Framebuffer_>,
+    }
+
+    impl Dimensions for FrameBuffer {
+        fn bounding_box(&self) -> Rectangle {
+            Rectangle::new(
+                Point::new(0, 0),
+                Size::new(DISPLAY_WIDTH as u32, DISPLAY_HEIGHT as u32),
+            )
+        }
+    }
+
+    impl DrawTarget for FrameBuffer {
+        type Color = ColorFormat;
+        type Error = core::convert::Infallible;
+
+        fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
+        where
+            I: IntoIterator<Item = embedded_graphics::Pixel<Self::Color>>,
+        {
+            self.buffers.draw_iter(pixels)?;
+            Ok(())
+        }
+    }
+
+    impl GetPixel for FrameBuffer {
+        type Color = ColorFormat;
+
+        fn pixel(&self, point: Point) -> Option<Self::Color> {
+            self.buffers.pixel(point)
+        }
+    }
+
+    impl DisplayTargetDrive for FrameBuffer {
+        fn new(color: ColorFormat) -> Self {
+            let mut s = Self {
+                buffers: Box::new(Framebuffer::new()),
+                background_buffers: Box::new(Framebuffer::new()),
+            };
+
+            s.buffers.clear(color).unwrap();
+            s.background_buffers.clear(color).unwrap();
+
+            s
+        }
+        fn flush(&mut self) -> anyhow::Result<()> {
+            let bounding_box = self.bounding_box();
+            let x_start = bounding_box.top_left.x as i32;
+            let y_start = bounding_box.top_left.y as i32;
+            let x_end = bounding_box.top_left.x + bounding_box.size.width as i32;
+            let y_end = bounding_box.top_left.y + bounding_box.size.height as i32;
+
+            let e = flush_display(self.buffers.data(), x_start, y_start, x_end, y_end);
+            if e != 0 {
+                return Err(anyhow::anyhow!("Failed to flush display: error code {}", e));
+            }
+
+            self.buffers.clone_from(&self.background_buffers);
+
+            Ok(())
+        }
+
+        fn fix_background(&mut self) -> anyhow::Result<()> {
+            self.background_buffers.clone_from(&self.buffers);
+            Ok(())
+        }
+    }
+
+    const AVATAR_SIZE: u32 = 96;
+    pub struct ChatUI<const N: usize> {
+        state_text: String,
+        state_text_pixels: Vec<Pixel<ColorFormat>>,
+
+        asr_text: String,
+        asr_text_pixels: Vec<Pixel<ColorFormat>>,
+
+        content: String,
+        content_pixels: Vec<Pixel<ColorFormat>>,
+
+        avatar: DynamicImage<N>,
+    }
+
+    impl<const N: usize> ChatUI<N> {
+        pub fn new(avatar: DynamicImage<N>) -> Self {
+            Self {
+                state_text: String::new(),
+                state_text_pixels: Vec::with_capacity(DISPLAY_WIDTH * 32),
+                asr_text: String::new(),
+                asr_text_pixels: Vec::with_capacity(DISPLAY_WIDTH * 32),
+                content: String::new(),
+                content_pixels: Vec::with_capacity(DISPLAY_WIDTH * DISPLAY_HEIGHT / 4),
+                avatar: avatar,
+            }
+        }
+
+        pub fn set_state(&mut self, text: String) {
+            if self.state_text != text {
+                self.state_text = text;
+                self.state_text_pixels.clear();
+            }
+        }
+
+        pub fn set_asr(&mut self, text: String) {
+            if self.asr_text != text {
+                self.asr_text = text;
+                self.asr_text_pixels.clear();
+            }
+        }
+
+        pub fn set_text(&mut self, text: String) {
+            if self.content != text {
+                self.content = text;
+                self.content_pixels.clear();
+            }
+        }
+
+        pub fn set_avatar_index(&mut self, index: usize) {
+            self.avatar.set_index(index);
+        }
+
+        pub fn render_to_target(&mut self, target: &mut FrameBuffer) -> anyhow::Result<()> {
+            let bounding_box = target.bounding_box();
+
+            self.avatar.render(target)?;
+
+            let (state_area_box, asr_area_box, content_area_box) = Self::layout(bounding_box);
+
+            if self.state_text_pixels.is_empty() {
+                let mut pixel_target = PixelsTarget {
+                    pixels: &mut self.state_text_pixels,
+                    bounding_box,
+                };
+                Text::with_alignment(
+                    &self.state_text,
+                    state_area_box.center(),
+                    U8g2TextStyle::new(
+                        u8g2_fonts::fonts::u8g2_font_wqy12_t_gb2312a,
+                        ColorFormat::CSS_LIGHT_CYAN,
+                    ),
+                    Alignment::Center,
+                )
+                .draw(&mut pixel_target)?;
+            }
+            target.draw_iter(self.state_text_pixels.iter().cloned())?;
+
+            if self.asr_text_pixels.is_empty() {
+                let mut pixel_target = PixelsTarget {
+                    pixels: &mut self.asr_text_pixels,
+                    bounding_box,
+                };
+                Text::with_alignment(
+                    &self.asr_text,
+                    asr_area_box.center(),
+                    U8g2TextStyle::new(
+                        u8g2_fonts::fonts::u8g2_font_wqy12_t_gb2312a,
+                        ColorFormat::CSS_WHEAT,
+                    ),
+                    Alignment::Center,
+                )
+                .draw(&mut pixel_target)?;
+            }
+            target.draw_iter(self.asr_text_pixels.iter().cloned())?;
+
+            if self.content_pixels.is_empty() {
+                let mut pixel_target = PixelsTarget {
+                    pixels: &mut self.content_pixels,
+                    bounding_box,
+                };
+                let textbox_style = embedded_text::style::TextBoxStyleBuilder::new()
+                    .height_mode(embedded_text::style::HeightMode::FitToText)
+                    .alignment(embedded_text::alignment::HorizontalAlignment::Center)
+                    .line_height(embedded_graphics::text::LineHeight::Percent(120))
+                    .paragraph_spacing(16)
+                    .build();
+
+                embedded_text::TextBox::with_textbox_style(
+                    &self.content,
+                    content_area_box,
+                    crate::ui::MyTextStyle(
+                        U8g2TextStyle::new(
+                            u8g2_fonts::fonts::u8g2_font_wqy16_t_gb2312,
+                            ColorFormat::CSS_WHEAT,
+                        ),
+                        3,
+                    ),
+                    textbox_style,
+                )
+                .draw(&mut pixel_target)?;
+            }
+            target.draw_iter(self.content_pixels.iter().cloned())?;
+
+            Ok(())
+        }
+
+        pub fn layout(bounding_box: Rectangle) -> (Rectangle, Rectangle, Rectangle) {
+            let state_area_box = Rectangle::new(
+                bounding_box.top_left,
+                Size::new(bounding_box.size.width, 32),
+            );
+
+            let asr_area_box = Rectangle::new(
+                bounding_box.top_left + Point::new(0, 32),
+                Size::new(bounding_box.size.width, 32),
+            );
+
+            let content_height = bounding_box.size.height - 64;
+
+            let content_area_box = Rectangle::new(
+                bounding_box.top_left + Point::new(0, 64),
+                Size::new(bounding_box.size.width, content_height),
+            );
+
+            (state_area_box, asr_area_box, content_area_box)
+        }
+    }
+
+    pub fn new_chat_ui<const N: usize>(target: &mut FrameBuffer) -> anyhow::Result<ChatUI<N>> {
+        let bounding_box = target.bounding_box();
+
+        let header_area_box = Rectangle::new(
+            bounding_box.center()
+                - Point {
+                    x: AVATAR_SIZE as i32 / 2,
+                    y: AVATAR_SIZE as i32 / 2,
+                },
+            Size::new(AVATAR_SIZE, AVATAR_SIZE),
+        );
+
+        let (state_area_box, asr_area_box, content_area_box) = ChatUI::<N>::layout(bounding_box);
+        let state_style = PrimitiveStyleBuilder::new()
+            .stroke_color(ColorFormat::CSS_DARK_BLUE)
+            .stroke_width(1)
+            .fill_color(ColorFormat::CSS_DARK_BLUE)
+            .build();
+
+        let pixels = crate::ui::get_background_pixels(target, state_area_box, state_style, 0.5);
+        target.draw_iter(pixels)?;
+
+        let asr_style = PrimitiveStyleBuilder::new()
+            .stroke_color(ColorFormat::CSS_DARK_CYAN)
+            .stroke_width(1)
+            .fill_color(ColorFormat::CSS_DARK_CYAN)
+            .build();
+
+        let pixels = crate::ui::get_background_pixels(target, asr_area_box, asr_style, 0.15);
+        target.draw_iter(pixels)?;
+
+        let content_style = PrimitiveStyleBuilder::new()
+            .stroke_color(ColorFormat::CSS_BLACK)
+            .stroke_width(5)
+            .fill_color(ColorFormat::CSS_BLACK)
+            .build();
+        let pixels =
+            crate::ui::get_background_pixels(target, content_area_box, content_style, 0.25);
+        target.draw_iter(pixels)?;
+
+        target.background_buffers.clone_from(&target.buffers);
+
+        let avatar = DynamicImage::new_from_gif(header_area_box, crate::ui::AVATAR_GIF)?;
+
+        Ok(ChatUI::new(avatar))
+    }
+
+    pub struct ConfiguresUI {
+        qr_area: ImageArea,
+        info: String,
+    }
+
+    impl ConfiguresUI {
+        pub fn new(
+            bounding_box: Rectangle,
+            qr_content: &str,
+            info: String,
+        ) -> anyhow::Result<Self> {
+            let height = bounding_box.size.height;
+            let qr_area_box = Rectangle::new(
+                bounding_box.top_left + Point::new(0, height as i32 / 3),
+                Size::new(bounding_box.size.width, 2 * height / 3),
+            );
+
+            Ok(Self {
+                qr_area: ImageArea::new_from_qr_code(qr_area_box, qr_content)?,
+                info,
+            })
+        }
+
+        pub fn set_info(&mut self, info: String) {
+            self.info = info;
+        }
+    }
+
+    impl Drawable for ConfiguresUI {
+        type Color = ColorFormat;
+
+        type Output = ();
+
+        fn draw<D>(&self, target: &mut D) -> Result<Self::Output, D::Error>
+        where
+            D: DrawTarget<Color = Self::Color>,
+        {
+            let info_area_box = Rectangle::new(
+                target.bounding_box().top_left,
+                Size::new(
+                    target.bounding_box().size.width,
+                    target.bounding_box().size.height / 3,
+                ),
+            );
+
+            Text::with_alignment(
+                &self.info,
+                info_area_box.center(),
+                U8g2TextStyle::new(
+                    u8g2_fonts::fonts::u8g2_font_wqy12_t_gb2312a,
+                    ColorFormat::CSS_WHEAT,
+                ),
+                Alignment::Center,
+            )
+            .draw(target)?;
+
+            target.draw_iter(self.qr_area.image_data.iter().cloned())?;
+
+            Ok(())
+        }
+    }
+}

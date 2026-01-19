@@ -1,68 +1,23 @@
 use embedded_graphics::{
-    framebuffer::{buffer_size, Framebuffer},
     image::GetPixel,
-    pixelcolor::{
-        raw::{LittleEndian, RawU16},
-        Rgb565,
-    },
+    pixelcolor::Rgb565,
     prelude::*,
-    primitives::{PrimitiveStyleBuilder, Rectangle},
-    text::{
-        renderer::{CharacterStyle, TextRenderer},
-        Alignment, Text,
-    },
+    primitives::{PrimitiveStyle, Rectangle},
+    text::renderer::{CharacterStyle, TextRenderer},
 };
-use embedded_text::TextBox;
 use u8g2_fonts::U8g2TextStyle;
 
 pub type ColorFormat = Rgb565;
 
 pub const DEFAULT_BACKGROUND: &[u8] = include_bytes!("../assets/echokit.gif");
+// pub const DEFAULT_BACKGROUND: &[u8] = include_bytes!("../assets/ht.gif");
 
-use crate::boards::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
-
-pub type FlushDisplayFn =
-    fn(color_data: &[u8], x_start: i32, y_start: i32, x_end: i32, y_end: i32) -> i32;
-
-pub fn backgroud(gif: &[u8], f: FlushDisplayFn) -> Result<(), std::convert::Infallible> {
-    let image = tinygif::Gif::<ColorFormat>::from_slice(gif).unwrap();
-
-    // Create a new framebuffer
-    let mut display = Box::new(Framebuffer::<
-        ColorFormat,
-        _,
-        LittleEndian,
-        DISPLAY_WIDTH,
-        DISPLAY_HEIGHT,
-        { buffer_size::<ColorFormat>(DISPLAY_WIDTH, DISPLAY_HEIGHT) },
-    >::new());
-
-    display.clear(ColorFormat::WHITE)?;
-
-    for frame in image.frames() {
-        if !frame.is_transparent {
-            display.clear(ColorFormat::WHITE)?;
-        }
-        frame.draw(display.as_mut())?;
-        f(
-            display.data(),
-            0,
-            0,
-            DISPLAY_WIDTH as _,
-            DISPLAY_HEIGHT as _,
-        );
-        let delay_ms = frame.delay_centis * 10;
-        std::thread::sleep(std::time::Duration::from_millis(delay_ms as u64));
-    }
-
-    Ok(())
-}
-
-const ALPHA: f32 = 0.5;
+// pub const LM_PNG: &[u8] = include_bytes!("../assets/lm_320x240.png");
+pub const AVATAR_GIF: &[u8] = include_bytes!("../assets/avatar.gif");
 
 // TextRenderer + CharacterStyle
 #[derive(Debug, Clone)]
-struct MyTextStyle(U8g2TextStyle<ColorFormat>, i32);
+pub struct MyTextStyle(pub U8g2TextStyle<ColorFormat>, pub i32);
 
 impl TextRenderer for MyTextStyle {
     type Color = ColorFormat;
@@ -136,65 +91,111 @@ impl CharacterStyle for MyTextStyle {
     }
 }
 
-pub struct UI {
-    pub state: String,
-    state_area: Rectangle,
-    state_background: Vec<Pixel<ColorFormat>>,
-    pub text: String,
-    text_area: Rectangle,
-    text_background: Vec<Pixel<ColorFormat>>,
-
-    display: Box<
-        Framebuffer<
-            ColorFormat,
-            RawU16,
-            LittleEndian,
-            DISPLAY_WIDTH,
-            DISPLAY_HEIGHT,
-            { buffer_size::<ColorFormat>(DISPLAY_WIDTH, DISPLAY_HEIGHT) },
-        >,
-    >,
-
-    flush_fn: FlushDisplayFn,
+pub trait DisplayTargetDrive:
+    DrawTarget<Color = ColorFormat> + GetPixel<Color = ColorFormat>
+{
+    fn new(color: ColorFormat) -> Self;
+    fn flush(&mut self) -> anyhow::Result<()>;
+    fn fix_background(&mut self) -> anyhow::Result<()>;
 }
 
-const COLOR_WIDTH: u32 = 2;
+pub fn display_gif<D: DisplayTargetDrive>(
+    display_target: &mut D,
+    gif: &[u8],
+) -> anyhow::Result<()> {
+    use image::AnimationDecoder;
+    let img_gif = image::codecs::gif::GifDecoder::new(std::io::Cursor::new(gif))?;
 
-fn alpha_mix(source: ColorFormat, target: ColorFormat, alpha: f32) -> ColorFormat {
+    let mut frames = img_gif.into_frames();
+    let mut ff = frames.next();
+
+    loop {
+        if ff.is_none() {
+            break;
+        }
+
+        let frame = ff.unwrap()?;
+
+        let delay = frame.delay();
+
+        let img = frame.into_buffer();
+        let pixels = img.enumerate_pixels().map(|(x, y, p)| {
+            let (x, y) = if p[3] == 0 {
+                (-1, -1)
+            } else {
+                (x as i32, y as i32)
+            };
+
+            Pixel(
+                Point { x, y },
+                ColorFormat::new(
+                    p[0] / (u8::MAX / ColorFormat::MAX_R),
+                    p[1] / (u8::MAX / ColorFormat::MAX_G),
+                    p[2] / (u8::MAX / ColorFormat::MAX_B),
+                ),
+            )
+        });
+
+        display_target
+            .draw_iter(pixels)
+            .map_err(|_| anyhow::anyhow!("Failed to draw GIF frame"))?;
+
+        let now = std::time::Instant::now();
+        ff = frames.next();
+        if ff.is_none() {
+            display_target.fix_background()?;
+        }
+
+        display_target.flush()?;
+
+        let delay = std::time::Duration::from(delay);
+
+        std::thread::sleep(std::time::Instant::now() - (now + delay));
+    }
+
+    Ok(())
+}
+
+pub fn display_png<D: DisplayTargetDrive>(
+    display_target: &mut D,
+    png: &[u8],
+    timeout: std::time::Duration,
+) -> anyhow::Result<()> {
+    let img_reader =
+        image::ImageReader::with_format(std::io::Cursor::new(png), image::ImageFormat::Png);
+
+    let img = img_reader.decode().unwrap().to_rgb8();
+
+    let p = img.enumerate_pixels().map(|(x, y, p)| {
+        Pixel(
+            Point::new(x as i32, y as i32),
+            ColorFormat::new(
+                p[0] / (u8::MAX / ColorFormat::MAX_R),
+                p[1] / (u8::MAX / ColorFormat::MAX_G),
+                p[2] / (u8::MAX / ColorFormat::MAX_B),
+            ),
+        )
+    });
+
+    display_target
+        .draw_iter(p)
+        .map_err(|_| anyhow::anyhow!("Failed to draw PNG image"))?;
+
+    display_target.fix_background()?;
+
+    display_target.flush()?;
+
+    std::thread::sleep(timeout);
+
+    Ok(())
+}
+
+pub fn alpha_mix(source: ColorFormat, target: ColorFormat, alpha: f32) -> ColorFormat {
     ColorFormat::new(
         ((1. - alpha) * source.r() as f32 + alpha * target.r() as f32) as u8,
         ((1. - alpha) * source.g() as f32 + alpha * target.g() as f32) as u8,
         ((1. - alpha) * source.b() as f32 + alpha * target.b() as f32) as u8,
     )
-}
-
-fn flush_area<const COLOR_WIDTH: u32>(
-    data: &[u8],
-    size: Size,
-    area: Rectangle,
-    flash_fn: FlushDisplayFn,
-) -> i32 {
-    let start_y = area.top_left.y as u32;
-    let end_y = start_y + area.size.height;
-
-    let start_index = start_y * size.width * COLOR_WIDTH;
-    let data_len = area.size.height * size.width * COLOR_WIDTH;
-    if let Some(area_data) = data.get(start_index as usize..(start_index + data_len) as usize) {
-        flash_fn(
-            area_data,
-            0,
-            start_y as i32,
-            size.width as i32,
-            end_y as i32,
-        )
-    } else {
-        log::warn!("flush_area error: data out of bounds");
-        log::warn!(
-            "start_index: {start_index}, area_len: {data_len}, data_len: {}",
-            data.len()
-        );
-        -1
-    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -251,225 +252,159 @@ impl qrcode::render::Canvas for QrCanvas {
     }
 }
 
-impl UI {
-    pub fn new(backgroud_gif: Option<&[u8]>, flush_fn: FlushDisplayFn) -> anyhow::Result<Self> {
-        let mut display = Box::new(Framebuffer::<
-            ColorFormat,
-            _,
-            LittleEndian,
-            DISPLAY_WIDTH,
-            DISPLAY_HEIGHT,
-            { buffer_size::<ColorFormat>(DISPLAY_WIDTH, DISPLAY_HEIGHT) },
-        >::new());
-
-        display.clear(ColorFormat::WHITE).unwrap();
-
-        let state_area = Rectangle::new(
-            display.bounding_box().top_left + Point::new(0, 0),
-            Size::new(DISPLAY_WIDTH as u32, 32),
-        );
-        let text_area = Rectangle::new(
-            display.bounding_box().top_left + Point::new(0, 32),
-            Size::new(DISPLAY_WIDTH as u32, DISPLAY_HEIGHT as u32 - 32),
-        );
-
-        if let Some(gif) = backgroud_gif {
-            let image = tinygif::Gif::<ColorFormat>::from_slice(gif)
-                .map_err(|e| anyhow::anyhow!("Failed to parse GIF: {:?}", e))?;
-            for frame in image.frames() {
-                frame.draw(display.as_mut()).unwrap();
+pub fn get_background_pixels<T: GetPixel<Color = ColorFormat>>(
+    display: &T,
+    area: Rectangle,
+    background_style: PrimitiveStyle<ColorFormat>,
+    alpha: f32,
+) -> Vec<Pixel<ColorFormat>> {
+    area.into_styled(background_style)
+        .pixels()
+        .map(|p| {
+            if let Some(color) = display.pixel(p.0) {
+                Pixel(p.0, alpha_mix(color, p.1, alpha))
+            } else {
+                p
             }
-        }
-
-        let img = display.as_image();
-
-        let state_pixels: Vec<Pixel<ColorFormat>> = state_area
-            .into_styled(
-                PrimitiveStyleBuilder::new()
-                    .stroke_color(ColorFormat::CSS_DARK_BLUE)
-                    .stroke_width(1)
-                    .fill_color(ColorFormat::CSS_DARK_BLUE)
-                    .build(),
-            )
-            .pixels()
-            .map(|p| {
-                if let Some(color) = img.pixel(p.0) {
-                    Pixel(p.0, alpha_mix(color, p.1, ALPHA))
-                } else {
-                    p
-                }
-            })
-            .collect();
-
-        let box_pixels: Vec<Pixel<ColorFormat>> = text_area
-            .into_styled(
-                PrimitiveStyleBuilder::new()
-                    .stroke_color(ColorFormat::CSS_BLACK)
-                    .stroke_width(5)
-                    .fill_color(ColorFormat::CSS_BLACK)
-                    .build(),
-            )
-            .pixels()
-            .map(|p| {
-                if let Some(color) = img.pixel(p.0) {
-                    Pixel(p.0, alpha_mix(color, p.1, ALPHA))
-                } else {
-                    p
-                }
-            })
-            .collect();
-
-        Ok(Self {
-            state: String::new(),
-            state_background: state_pixels,
-            text: String::new(),
-            text_background: box_pixels,
-            display,
-            state_area,
-            text_area,
-            flush_fn,
         })
+        .collect()
+}
+
+pub struct ImageArea {
+    pub image_data: Vec<Pixel<ColorFormat>>,
+}
+
+impl ImageArea {
+    pub fn new_from_color(area: Rectangle, color: ColorFormat) -> anyhow::Result<Self> {
+        let pixels: Vec<Pixel<ColorFormat>> =
+            area.points().map(|point| Pixel(point, color)).collect();
+
+        Ok(Self { image_data: pixels })
     }
 
-    pub fn display_flush(&mut self) -> anyhow::Result<()> {
-        self.state_background
-            .iter()
-            .cloned()
-            .draw(self.display.as_mut())?;
-        self.text_background
-            .iter()
-            .cloned()
-            .draw(self.display.as_mut())?;
-
-        Text::with_alignment(
-            &self.state,
-            self.state_area.center(),
-            U8g2TextStyle::new(
-                u8g2_fonts::fonts::u8g2_font_wqy12_t_gb2312a,
-                ColorFormat::CSS_LIGHT_CYAN,
-            ),
-            Alignment::Center,
-        )
-        .draw(self.display.as_mut())?;
-
-        let textbox_style = embedded_text::style::TextBoxStyleBuilder::new()
-            .height_mode(embedded_text::style::HeightMode::FitToText)
-            .alignment(embedded_text::alignment::HorizontalAlignment::Center)
-            .line_height(embedded_graphics::text::LineHeight::Percent(120))
-            .paragraph_spacing(16)
-            .build();
-        let text_box = TextBox::with_textbox_style(
-            &self.text,
-            self.text_area,
-            MyTextStyle(
-                U8g2TextStyle::new(
-                    u8g2_fonts::fonts::u8g2_font_wqy16_t_gb2312,
-                    ColorFormat::CSS_WHEAT,
-                ),
-                3,
-            ),
-            textbox_style,
+    pub fn new_from_png(area: Rectangle, png_data: &[u8]) -> anyhow::Result<Self> {
+        let ht = image::ImageReader::with_format(
+            std::io::Cursor::new(png_data),
+            image::ImageFormat::Png,
         );
-        text_box.draw(self.display.as_mut())?;
+        let img = ht.decode().unwrap().to_rgb8();
 
-        for i in 0..5 {
-            let e = flush_area::<COLOR_WIDTH>(
-                self.display.data(),
-                self.display.size(),
-                Rectangle::new(
-                    self.state_area.top_left,
-                    Size::new(
-                        self.text_area.size.width,
-                        self.text_area.size.height + self.state_area.size.height,
-                    ),
-                ),
-                self.flush_fn,
-            );
-            if e == 0 {
-                break;
+        let mut pixels = Vec::with_capacity((area.size.width * area.size.height) as usize);
+
+        for (x, y, p) in img.enumerate_pixels() {
+            if x >= area.size.width || y >= area.size.height {
+                continue;
             }
-            log::warn!("flush_display error: {} retry {i}", e);
+            pixels.push(Pixel(
+                Point::new(area.top_left.x + x as i32, area.top_left.y + y as i32),
+                ColorFormat::new(
+                    p[0] / (u8::MAX / ColorFormat::MAX_R),
+                    p[1] / (u8::MAX / ColorFormat::MAX_G),
+                    p[2] / (u8::MAX / ColorFormat::MAX_B),
+                ),
+            ));
         }
-        Ok(())
+
+        Ok(Self { image_data: pixels })
     }
 
-    pub fn display_qrcode(&mut self, qr_context: &str) -> anyhow::Result<()> {
-        let code = qrcode::QrCode::new(qr_context).unwrap();
+    pub fn new_from_qr_code(area: Rectangle, qr_content: &str) -> anyhow::Result<Self> {
+        let code = qrcode::QrCode::new(qr_content).unwrap();
         let ((width, height), code_pixel) = code
             .render::<QrPixel>()
             .quiet_zone(true)
             .module_dimensions(4, 4)
             .build();
 
-        self.state_background
-            .iter()
-            .cloned()
-            .draw(self.display.as_mut())?;
-        self.text_background
-            .iter()
-            .cloned()
-            .draw(self.display.as_mut())?;
+        let offset_x = if area.size.width > width {
+            (area.size.width - width) / 2
+        } else {
+            0
+        };
+        let offset_y = if area.size.height > height {
+            (area.size.height - height) / 2
+        } else {
+            0
+        };
 
-        self.display
-            .cropped(&Rectangle::new(
-                self.text_area.top_left
-                    + Point::new(
-                        ((self.text_area.size.width - width) / 2) as i32,
-                        (self.text_area.size.height - height) as i32,
+        let pixels: Vec<Pixel<ColorFormat>> = code_pixel
+            .into_iter()
+            .map(|p| {
+                Pixel(
+                    Point::new(
+                        p.0.x + area.top_left.x + offset_x as i32,
+                        p.0.y + area.top_left.y + offset_y as i32,
                     ),
-                Size::new(width, height),
-            ))
-            .draw_iter(code_pixel)?;
+                    p.1,
+                )
+            })
+            .collect();
 
-        Text::with_alignment(
-            &self.state,
-            self.state_area.center(),
-            U8g2TextStyle::new(
-                u8g2_fonts::fonts::u8g2_font_wqy12_t_gb2312a,
-                ColorFormat::CSS_LIGHT_CYAN,
-            ),
-            Alignment::Center,
-        )
-        .draw(self.display.as_mut())?;
+        Ok(Self {
+            // area: Rectangle {
+            //     top_left: area.top_left + Point::new(offset_x as i32, offset_y as i32),
+            //     size: Size::new(width, height),
+            // },
+            image_data: pixels,
+        })
+    }
+}
 
-        let textbox_style = embedded_text::style::TextBoxStyleBuilder::new()
-            .height_mode(embedded_text::style::HeightMode::FitToText)
-            .alignment(embedded_text::alignment::HorizontalAlignment::Center)
-            .line_height(embedded_graphics::text::LineHeight::Percent(120))
-            .paragraph_spacing(12)
-            .build();
-        let text_box = TextBox::with_textbox_style(
-            &self.text,
-            self.text_area,
-            MyTextStyle(
-                U8g2TextStyle::new(
-                    u8g2_fonts::fonts::u8g2_font_wqy12_t_gb2312a,
-                    ColorFormat::CSS_WHEAT,
-                ),
-                3,
-            ),
-            textbox_style,
-        );
-        text_box.draw(self.display.as_mut())?;
+pub struct DynamicImage<const N: usize> {
+    pub display_index: usize,
+    pub image_data: Vec<Vec<Pixel<ColorFormat>>>,
+}
 
-        for i in 0..5 {
-            let e = flush_area::<COLOR_WIDTH>(
-                self.display.data(),
-                self.display.size(),
-                Rectangle::new(
-                    self.state_area.top_left,
-                    Size::new(
-                        self.text_area.size.width,
-                        self.text_area.size.height + self.state_area.size.height,
+impl<const N: usize> DynamicImage<N> {
+    pub fn new_from_gif(area: Rectangle, gif_data: &[u8]) -> anyhow::Result<Self> {
+        use image::AnimationDecoder;
+        let img_gif = image::codecs::gif::GifDecoder::new(std::io::Cursor::new(gif_data))?;
+
+        let frames = img_gif.into_frames();
+        let mut image_data: Vec<Vec<Pixel<ColorFormat>>> = Vec::new();
+        for ff in frames.take(N) {
+            let frame = ff?;
+
+            let img = frame.into_buffer();
+            let mut pixels = Vec::with_capacity((area.size.width * area.size.height) as usize);
+
+            for (x, y, p) in img.enumerate_pixels() {
+                if x >= area.size.width || y >= area.size.height || p[3] == 0 {
+                    continue;
+                }
+                pixels.push(Pixel(
+                    Point::new(area.top_left.x + x as i32, area.top_left.y + y as i32),
+                    ColorFormat::new(
+                        p[0] / (u8::MAX / ColorFormat::MAX_R),
+                        p[1] / (u8::MAX / ColorFormat::MAX_G),
+                        p[2] / (u8::MAX / ColorFormat::MAX_B),
                     ),
-                ),
-                self.flush_fn,
-            );
-            if e == 0 {
-                break;
+                ));
             }
-            log::warn!("flush_display error: {} retry {i}", e);
+
+            image_data.push(pixels);
         }
+
+        Ok(Self {
+            display_index: 0,
+            image_data,
+        })
+    }
+
+    pub fn set_index(&mut self, index: usize) {
+        let new_idx = index % N;
+        if new_idx == self.display_index {
+            self.display_index = 0;
+        } else {
+            self.display_index = index % N;
+        }
+    }
+
+    pub fn render<D: DrawTarget<Color = ColorFormat>>(
+        &self,
+        display: &mut D,
+    ) -> Result<(), D::Error> {
+        display.draw_iter(self.image_data[self.display_index].iter().cloned())?;
         Ok(())
     }
 }

@@ -7,6 +7,10 @@ use esp_idf_svc::sys::esp_sr;
 
 const SAMPLE_RATE: u32 = 16000;
 
+pub static mut AFE_LINEAR_GAIN: f32 = 1.0;
+pub static mut AGC_TARGET_LEVEL_DBFS: i32 = 3;
+pub static mut AGC_COMPRESSION_GAIN_DB: i32 = 9;
+
 unsafe fn afe_init() -> (
     *mut esp_sr::esp_afe_sr_iface_t,
     *mut esp_sr::esp_afe_sr_data_t,
@@ -29,7 +33,9 @@ unsafe fn afe_init() -> (
     afe_config.vad_mode = esp_sr::vad_mode_t_VAD_MODE_4;
 
     afe_config.agc_init = true;
-    afe_config.afe_linear_gain = 2.0;
+    afe_config.afe_linear_gain = AFE_LINEAR_GAIN;
+    afe_config.agc_target_level_dbfs = AGC_TARGET_LEVEL_DBFS;
+    afe_config.agc_compression_gain_db = AGC_COMPRESSION_GAIN_DB;
 
     afe_config.aec_init = true;
     afe_config.aec_mode = esp_sr::aec_mode_t_AEC_MODE_VOIP_HIGH_PERF;
@@ -131,6 +137,12 @@ impl AFE {
                     result.vad_cache,
                     result.vad_cache_size as usize / 2,
                 );
+                // log::info!(
+                //     "Using vad cache len: {} {}ms",
+                //     data_.len(),
+                //     data_.len() * 1000 / SAMPLE_RATE as usize
+                // );
+                // 352ms
                 data.extend_from_slice(data_);
             }
             if data_size > 0 {
@@ -224,13 +236,14 @@ pub enum AudioEvent {
     StopSpeech,
     StartSpeech,
     ClearSpeech,
-    SpeechChunk(Vec<u8>),
     SpeechChunki16(Vec<i16>),
+    SpeechChunki16WithVowel(Vec<i16>, u8),
     EndSpeech(Arc<tokio::sync::Notify>),
     VolSet(u8),
 }
 
 pub enum SendBufferItem {
+    Vowel(u8),
     Audio(Vec<i16>),
     EndSpeech(Arc<tokio::sync::Notify>),
 }
@@ -340,14 +353,19 @@ impl SendBuffer {
         }
     }
 
+    pub fn push_vowel(&mut self, vowel: u8) {
+        self.cache.push_back(SendBufferItem::Vowel(vowel));
+    }
+
     pub fn push_back_end_speech(&mut self, notify: Arc<tokio::sync::Notify>) {
         self.cache.push_back(SendBufferItem::EndSpeech(notify));
     }
 
-    pub fn get_chunk(&mut self) -> Option<Vec<i16>> {
+    pub fn get_chunk(&mut self) -> Option<SendBufferItem> {
         loop {
             match self.cache.pop_front() {
-                Some(SendBufferItem::Audio(v)) => return Some(v),
+                Some(SendBufferItem::Vowel(v)) => return Some(SendBufferItem::Vowel(v)),
+                Some(SendBufferItem::Audio(v)) => return Some(SendBufferItem::Audio(v)),
                 Some(SendBufferItem::EndSpeech(notify)) => {
                     let _ = notify.notify_one();
                     continue;
@@ -412,6 +430,7 @@ const CHUNK_SIZE: usize = 256;
 
 fn audio_task_run(
     rx: &mut tokio::sync::mpsc::UnboundedReceiver<AudioEvent>,
+    tx: EventTx,
     fn_read: &mut dyn FnMut(&mut [i16]) -> Result<usize, esp_idf_svc::sys::EspError>,
     fn_write: &mut dyn FnMut(&[i16]) -> Result<usize, esp_idf_svc::sys::EspError>,
     afe_handle: Arc<AFE>,
@@ -479,13 +498,15 @@ fn audio_task_run(
                 AudioEvent::ClearSpeech => {
                     send_buffer.clear();
                 }
-                AudioEvent::SpeechChunk(items) => {
-                    send_buffer.push_u8(&items);
+                AudioEvent::SpeechChunki16WithVowel(items, vowel) => {
+                    send_buffer.push_vowel(vowel);
+                    send_buffer.push_i16(&items);
                 }
                 AudioEvent::SpeechChunki16(items) => {
                     send_buffer.push_i16(&items);
                 }
                 AudioEvent::EndSpeech(sender) => {
+                    send_buffer.push_vowel(0);
                     send_buffer.push_back_end_speech(sender);
                 }
                 AudioEvent::VolSet(vol) => {
@@ -503,7 +524,20 @@ fn audio_task_run(
             }
         }
         let play_data_ = if allow_speech {
-            send_buffer.get_chunk()
+            loop {
+                break match send_buffer.get_chunk() {
+                    Some(SendBufferItem::Audio(v)) => Some(v),
+                    Some(SendBufferItem::Vowel(v)) => {
+                        tx.blocking_send(crate::app::Event::Vowel(v))
+                            .map_err(|_| anyhow::anyhow!("Failed to send vowel event"))?;
+                        continue;
+                    }
+                    Some(SendBufferItem::EndSpeech(_)) => {
+                        unreachable!("EndSpeech should be handled in get_chunk")
+                    }
+                    None => None,
+                };
+            }
         } else {
             None
         };
@@ -615,6 +649,7 @@ impl BoxAudioWorker {
         let afe_handle = Arc::new(AFE::new());
         let afe_handle_ = afe_handle.clone();
         crate::log_heap();
+        let tx_ = tx.clone();
 
         let _afe_r = std::thread::Builder::new().stack_size(8 * 1024).spawn(|| {
             let r = afe_worker(afe_handle_, tx);
@@ -623,7 +658,7 @@ impl BoxAudioWorker {
             }
         })?;
 
-        audio_task_run(&mut rx, &mut fn_read, &mut fn_write, afe_handle)
+        audio_task_run(&mut rx, tx_, &mut fn_read, &mut fn_write, afe_handle)
     }
 }
 
@@ -706,10 +741,15 @@ impl BoardsAudioWorker {
         let afe_handle = Arc::new(AFE::new());
         let afe_handle_ = afe_handle.clone();
 
-        let _afe_r = std::thread::Builder::new()
-            .stack_size(8 * 1024)
-            .spawn(|| afe_worker(afe_handle_, tx))?;
+        let tx_ = tx.clone();
 
-        audio_task_run(&mut rx, &mut fn_read, &mut fn_write, afe_handle)
+        let _afe_r = std::thread::Builder::new().stack_size(8 * 1024).spawn(|| {
+            let r = afe_worker(afe_handle_, tx);
+            if let Err(e) = r {
+                log::error!("AFE worker error: {:?}", e);
+            }
+        })?;
+
+        audio_task_run(&mut rx, tx_, &mut fn_read, &mut fn_write, afe_handle)
     }
 }

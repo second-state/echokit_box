@@ -89,6 +89,71 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- 高级设置折叠面板 -->
+                    <div class="collapse collapse-arrow bg-base-200 border border-base-300">
+                        <input type="checkbox" id="advancedSettingsToggle" />
+                        <div class="collapse-title text-lg font-medium">
+                            🛠️ 高级设置
+                        </div>
+                        <div class="collapse-content">
+                            <div class="space-y-4 pt-4">
+                                <!-- AFE Linear Gain -->
+                                <div class="card bg-base-100 border border-base-300">
+                                    <div class="card-body py-4">
+                                        <h4 class="card-title text-base" id="afeLinearGainTitle">AFE 线性增益</h4>
+                                        <label class="form-control">
+                                            <div class="label">
+                                                <span class="label-text">线性增益值 (0.1 - 3.0)</span>
+                                                <span class="badge badge-primary" id="afeLinearGainValue">1.5</span>
+                                            </div>
+                                            <input type="range" min="1" max="30" value="15"
+                                                class="range range-sm" id="afeLinearGainRange" />
+                                        </label>
+                                        <button class="btn btn-sm btn-outline mt-2" id="saveAfeLinearGainButton" disabled>
+                                            保存 AFE 线性增益
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- AGC Target Level -->
+                                <div class="card bg-base-100 border border-base-300">
+                                    <div class="card-body py-4">
+                                        <h4 class="card-title text-base" id="agcTargetLevelTitle">AGC 目标电平</h4>
+                                        <label class="form-control">
+                                            <div class="label">
+                                                <span class="label-text">目标电平 (dBFS, 0 - 32)</span>
+                                                <span class="badge badge-primary" id="agcTargetLevelValue">1</span>
+                                            </div>
+                                            <input type="range" min="0" max="32" value="1"
+                                                class="range range-sm" id="agcTargetLevelRange" />
+                                        </label>
+                                        <button class="btn btn-sm btn-outline mt-2" id="saveAgcTargetLevelButton" disabled>
+                                            保存 AGC 目标电平
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- AGC Compression Gain -->
+                                <div class="card bg-base-100 border border-base-300">
+                                    <div class="card-body py-4">
+                                        <h4 class="card-title text-base" id="agcCompressionGainTitle">AGC 压缩增益</h4>
+                                        <label class="form-control">
+                                            <div class="label">
+                                                <span class="label-text">压缩增益 (dB, 0 - 32)</span>
+                                                <span class="badge badge-primary" id="agcCompressionGainValue">15</span>
+                                            </div>
+                                            <input type="range" min="0" max="32" value="15"
+                                                class="range range-sm" id="agcCompressionGainRange" />
+                                        </label>
+                                        <button class="btn btn-sm btn-outline mt-2" id="saveAgcCompressionGainButton" disabled>
+                                            保存 AGC 压缩增益
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -122,6 +187,9 @@
         const SERVER_URL_ID = "cef520a9-bcb5-4fc6-87f7-82804eee2b20";
         const BACKGROUND_IMAGE_ID = "d1f3b2c4-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
         const RESET_ID = "f0e1d2c3-b4a5-6789-0abc-def123456789";
+        const AFE_LINEAR_GAIN_ID = "a1b2c3d4-e5f6-4789-0abc-def123456789";
+        const AGC_TARGET_LEVEL_ID = "b2c3d4e5-f6a7-4890-1bcd-ef2345678901";
+        const AGC_COMPRESSION_GAIN_ID = "c3d4e5f6-a7b8-4901-2cde-f34567890123";
 
         // 全局变量
         let device = null;
@@ -153,6 +221,22 @@
         const toastMessage = document.getElementById('toastMessage');
         const resetNotSupportedModal = document.getElementById('resetNotSupportedModal');
 
+        // AFE 相关 DOM 元素
+        const afeLinearGainRange = document.getElementById('afeLinearGainRange');
+        const afeLinearGainValue = document.getElementById('afeLinearGainValue');
+        const saveAfeLinearGainButton = document.getElementById('saveAfeLinearGainButton');
+        const afeLinearGainTitle = document.getElementById('afeLinearGainTitle');
+
+        const agcTargetLevelRange = document.getElementById('agcTargetLevelRange');
+        const agcTargetLevelValue = document.getElementById('agcTargetLevelValue');
+        const saveAgcTargetLevelButton = document.getElementById('saveAgcTargetLevelButton');
+        const agcTargetLevelTitle = document.getElementById('agcTargetLevelTitle');
+
+        const agcCompressionGainRange = document.getElementById('agcCompressionGainRange');
+        const agcCompressionGainValue = document.getElementById('agcCompressionGainValue');
+        const saveAgcCompressionGainButton = document.getElementById('saveAgcCompressionGainButton');
+        const agcCompressionGainTitle = document.getElementById('agcCompressionGainTitle');
+
         // 跟踪哪些字段被修改
         const modifiedFields = {
             ssid: false,
@@ -172,7 +256,9 @@
         // 清除字段修改标记
         function clearFieldModification(fieldName, titleElement) {
             modifiedFields[fieldName] = false;
-            titleElement.textContent = titleElement.textContent.replace(' *', '');
+            if (titleElement) {
+                titleElement.textContent = titleElement.textContent.replace(' *', '');
+            }
             updateSaveButtonState();
         }
 
@@ -332,6 +418,11 @@
             backgroundImage.disabled = false;
             clearBgButton.disabled = false;
             controlPanel.classList.remove('opacity-50', 'pointer-events-none');
+
+            // 启用 AFE 控件
+            afeLinearGainRange.disabled = false;
+            agcTargetLevelRange.disabled = false;
+            agcCompressionGainRange.disabled = false;
         }
 
         // 禁用所有控件
@@ -345,6 +436,14 @@
             writeBgButton.disabled = true;
             clearBgButton.disabled = true;
             controlPanel.classList.add('opacity-50', 'pointer-events-none');
+
+            // 禁用 AFE 控件
+            afeLinearGainRange.disabled = true;
+            agcTargetLevelRange.disabled = true;
+            agcCompressionGainRange.disabled = true;
+            saveAfeLinearGainButton.disabled = true;
+            saveAgcTargetLevelButton.disabled = true;
+            saveAgcCompressionGainButton.disabled = true;
         }
 
         // 读取Characteristic值
@@ -372,6 +471,81 @@
             }
         }
 
+        // 读取 AFE Linear Gain (字符串格式的 f32)
+        async function readAfeLinearGain() {
+            if (!isConnected || !service) return false;
+            try {
+                const characteristic = await service.getCharacteristic(AFE_LINEAR_GAIN_ID);
+                const value = await characteristic.readValue();
+                const decoder = new TextDecoder();
+                const stringValue = decoder.decode(value);
+                const gain = parseFloat(stringValue);
+                if (!isNaN(gain)) {
+                    afeLinearGainRange.value = Math.round(gain * 10);
+                    afeLinearGainValue.textContent = gain.toFixed(1);
+                    // 重置标题（移除不支持标识）
+                    afeLinearGainTitle.textContent = 'AFE 线性增益';
+                    saveAfeLinearGainButton.disabled = true;
+                }
+                return true;
+            } catch (error) {
+                console.error('读取 AFE Linear Gain 失败:', error);
+                // 兼容旧版本：禁用该控件
+                afeLinearGainRange.disabled = true;
+                saveAfeLinearGainButton.disabled = true;
+                afeLinearGainTitle.textContent = 'AFE 线性增益 (不支持)';
+                return false;
+            }
+        }
+
+        // 读取 AGC Target Level (i32, 4 bytes little endian)
+        async function readAgcTargetLevel() {
+            if (!isConnected || !service) return false;
+            try {
+                const characteristic = await service.getCharacteristic(AGC_TARGET_LEVEL_ID);
+                const value = await characteristic.readValue();
+                // value 已经是 DataView，直接使用
+                const level = value.getInt32(0, true);
+                agcTargetLevelRange.value = level;
+                agcTargetLevelValue.textContent = level;
+                // 重置标题（移除不支持标识）
+                agcTargetLevelTitle.textContent = 'AGC 目标电平';
+                saveAgcTargetLevelButton.disabled = true;
+                return true;
+            } catch (error) {
+                console.error('读取 AGC Target Level 失败:', error);
+                // 兼容旧版本：禁用该控件
+                agcTargetLevelRange.disabled = true;
+                saveAgcTargetLevelButton.disabled = true;
+                agcTargetLevelTitle.textContent = 'AGC 目标电平 (不支持)';
+                return false;
+            }
+        }
+
+        // 读取 AGC Compression Gain (i32, 4 bytes little endian)
+        async function readAgcCompressionGain() {
+            if (!isConnected || !service) return false;
+            try {
+                const characteristic = await service.getCharacteristic(AGC_COMPRESSION_GAIN_ID);
+                const value = await characteristic.readValue();
+                // value 已经是 DataView，直接使用
+                const gain = value.getInt32(0, true);
+                agcCompressionGainRange.value = gain;
+                agcCompressionGainValue.textContent = gain;
+                // 重置标题（移除不支持标识）
+                agcCompressionGainTitle.textContent = 'AGC 压缩增益';
+                saveAgcCompressionGainButton.disabled = true;
+                return true;
+            } catch (error) {
+                console.error('读取 AGC Compression Gain 失败:', error);
+                // 兼容旧版本：禁用该控件
+                agcCompressionGainRange.disabled = true;
+                saveAgcCompressionGainButton.disabled = true;
+                agcCompressionGainTitle.textContent = 'AGC 压缩增益 (不支持)';
+                return false;
+            }
+        }
+
         // 加载所有配置
         async function loadAllConfiguration() {
             if (!isConnected || !service) {
@@ -386,6 +560,11 @@
                 await readCharacteristic(SSID_ID, ssidInput);
                 await readCharacteristic(PASS_ID, passInput);
                 await readCharacteristic(SERVER_URL_ID, serverUrlInput);
+
+                // 加载 AFE 参数
+                await readAfeLinearGain();
+                await readAgcTargetLevel();
+                await readAgcCompressionGain();
 
                 // 清除所有修改标记
                 clearFieldModification('ssid', ssidTitle);
@@ -616,6 +795,98 @@
             clearBackgroundImage();
             showNotification('信息', '背景图片已清除');
         });
+
+        // AFE Linear Gain 保存函数
+        async function saveAfeLinearGain() {
+            if (!isConnected || !service) {
+                showNotification('错误', '设备未连接', true);
+                return;
+            }
+            try {
+                const gain = parseFloat((afeLinearGainRange.value / 10).toFixed(1));
+                const characteristic = await service.getCharacteristic(AFE_LINEAR_GAIN_ID);
+                const encoder = new TextEncoder();
+                const data = encoder.encode(gain.toString());
+                await characteristic.writeValue(data);
+                showNotification('成功', `AFE 线性增益已设置为 ${gain}`);
+                clearFieldModification('afeLinearGain', afeLinearGainTitle);
+                saveAfeLinearGainButton.disabled = true;
+            } catch (error) {
+                console.error('保存 AFE Linear Gain 失败:', error);
+                showNotification('错误', '保存 AFE 线性增益失败: ' + error.message, true);
+            }
+        }
+
+        // AGC Target Level 保存函数
+        async function saveAgcTargetLevel() {
+            if (!isConnected || !service) {
+                showNotification('错误', '设备未连接', true);
+                return;
+            }
+            try {
+                const level = parseInt(agcTargetLevelRange.value);
+                const characteristic = await service.getCharacteristic(AGC_TARGET_LEVEL_ID);
+                const data = new ArrayBuffer(4);
+                const view = new DataView(data);
+                view.setInt32(0, level, true);
+                await characteristic.writeValue(data);
+                showNotification('成功', `AGC 目标电平已设置为 ${level}`);
+                clearFieldModification('agcTargetLevel', agcTargetLevelTitle);
+                saveAgcTargetLevelButton.disabled = true;
+            } catch (error) {
+                console.error('保存 AGC Target Level 失败:', error);
+                showNotification('错误', '保存 AGC 目标电平失败: ' + error.message, true);
+            }
+        }
+
+        // AGC Compression Gain 保存函数
+        async function saveAgcCompressionGain() {
+            if (!isConnected || !service) {
+                showNotification('错误', '设备未连接', true);
+                return;
+            }
+            try {
+                const gain = parseInt(agcCompressionGainRange.value);
+                const characteristic = await service.getCharacteristic(AGC_COMPRESSION_GAIN_ID);
+                const data = new ArrayBuffer(4);
+                const view = new DataView(data);
+                view.setInt32(0, gain, true);
+                await characteristic.writeValue(data);
+                showNotification('成功', `AGC 压缩增益已设置为 ${gain}`);
+                clearFieldModification('agcCompressionGain', agcCompressionGainTitle);
+                saveAgcCompressionGainButton.disabled = true;
+            } catch (error) {
+                console.error('保存 AGC Compression Gain 失败:', error);
+                showNotification('错误', '保存 AGC 压缩增益失败: ' + error.message, true);
+            }
+        }
+
+        // AFE Linear Gain 滑块事件
+        afeLinearGainRange.addEventListener('input', () => {
+            const gain = (afeLinearGainRange.value / 10).toFixed(1);
+            afeLinearGainValue.textContent = gain;
+            markFieldAsModified('afeLinearGain', afeLinearGainTitle);
+            saveAfeLinearGainButton.disabled = false;
+        });
+
+        // AGC Target Level 滑块事件
+        agcTargetLevelRange.addEventListener('input', () => {
+            agcTargetLevelValue.textContent = agcTargetLevelRange.value;
+            markFieldAsModified('agcTargetLevel', agcTargetLevelTitle);
+            saveAgcTargetLevelButton.disabled = false;
+        });
+
+        // AGC Compression Gain 滑块事件
+        agcCompressionGainRange.addEventListener('input', () => {
+            agcCompressionGainValue.textContent = agcCompressionGainRange.value;
+            markFieldAsModified('agcCompressionGain', agcCompressionGainTitle);
+            saveAgcCompressionGainButton.disabled = false;
+        });
+
+        // AFE 保存按钮事件
+        saveAfeLinearGainButton.addEventListener('click', saveAfeLinearGain);
+        saveAgcTargetLevelButton.addEventListener('click', saveAgcTargetLevel);
+        saveAgcCompressionGainButton.addEventListener('click', saveAgcCompressionGain);
 
         // 检查浏览器是否支持Web Bluetooth API
         if (!navigator.bluetooth) {

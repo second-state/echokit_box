@@ -1,6 +1,6 @@
 [package]
 name = "echokit"
-version = "0.2.2"
+version = "0.3.0"
 authors = ["csh <458761603@qq.com>"]
 edition = "2021"
 resolver = "2"
@@ -26,7 +26,7 @@ experimental = ["esp-idf-svc/experimental"]
 
 boards = ["voice_interrupt"]
 _no_default = []
-box = ["_no_default", "voice_interrupt"]
+box = ["_no_default", "voice_interrupt", "custom_ui"]
 cube = ["_no_default", "voice_interrupt"]
 cube2 = ["_no_default", "voice_interrupt"]
 nfc_cube2 = ["cube2", "mfrc522", "exio"]
@@ -38,6 +38,7 @@ extra_server = []
 i2c = []
 
 voice_interrupt = []
+custom_ui = []
 
 [dependencies]
 log = "0.4"
@@ -53,14 +54,17 @@ serde_json = "1.0"
 rmp-serde = "1"
 
 esp32-nimble = "0.11.1"
-# embedded-websocket = { version = "0.9.4" }
+
+# UI libraries
 embedded-graphics = "0.8.1"
 embedded-text = "0.7.2"
-# async-io = "2.4.0"
-
 u8g2-fonts = { version = "0.6.0", features = ["embedded_graphics_textstyle"] }
-tinygif = "0.0.4"
-# futures-lite = "2.6.0"
+image = { version = "0.25.6", default-features = false, features = [
+    "png",
+    "gif",
+    "webp",
+] }
+
 
 futures-util = { version = "0.3.31", features = ["sink"] }
 # futures-sink = "0.3.31"

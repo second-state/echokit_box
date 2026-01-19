@@ -92,6 +92,75 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Advanced Settings Collapse Panel -->
+                    <div class="collapse collapse-arrow bg-base-200 border border-base-300">
+                        <input type="checkbox" id="advancedSettingsToggle" />
+                        <div class="collapse-title text-lg font-medium">
+                            🛠️ Advanced Settings
+                        </div>
+                        <div class="collapse-content">
+                            <div class="space-y-4 pt-4">
+                                <!-- AFE Linear Gain -->
+                                <div class="card bg-base-100 border border-base-300">
+                                    <div class="card-body py-4">
+                                        <h4 class="card-title text-base" id="afeLinearGainTitle">AFE Linear Gain</h4>
+                                        <label class="form-control">
+                                            <div class="label">
+                                                <span class="label-text">Linear gain value (0.1 - 3.0)</span>
+                                                <span class="badge badge-primary" id="afeLinearGainValue">1.5</span>
+                                            </div>
+                                            <input type="range" min="1" max="30" value="15" class="range range-sm"
+                                                id="afeLinearGainRange" />
+                                        </label>
+                                        <button class="btn btn-sm btn-outline mt-2" id="saveAfeLinearGainButton"
+                                            disabled>
+                                            Save AFE Linear Gain
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- AGC Target Level -->
+                                <div class="card bg-base-100 border border-base-300">
+                                    <div class="card-body py-4">
+                                        <h4 class="card-title text-base" id="agcTargetLevelTitle">AGC Target Level</h4>
+                                        <label class="form-control">
+                                            <div class="label">
+                                                <span class="label-text">Target level (dBFS, 0 - 32)</span>
+                                                <span class="badge badge-primary" id="agcTargetLevelValue">1</span>
+                                            </div>
+                                            <input type="range" min="0" max="32" value="1" class="range range-sm"
+                                                id="agcTargetLevelRange" />
+                                        </label>
+                                        <button class="btn btn-sm btn-outline mt-2" id="saveAgcTargetLevelButton"
+                                            disabled>
+                                            Save AGC Target Level
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- AGC Compression Gain -->
+                                <div class="card bg-base-100 border border-base-300">
+                                    <div class="card-body py-4">
+                                        <h4 class="card-title text-base" id="agcCompressionGainTitle">AGC Compression
+                                            Gain</h4>
+                                        <label class="form-control">
+                                            <div class="label">
+                                                <span class="label-text">Compression gain (dB, 0 - 32)</span>
+                                                <span class="badge badge-primary" id="agcCompressionGainValue">15</span>
+                                            </div>
+                                            <input type="range" min="0" max="32" value="15" class="range range-sm"
+                                                id="agcCompressionGainRange" />
+                                        </label>
+                                        <button class="btn btn-sm btn-outline mt-2" id="saveAgcCompressionGainButton"
+                                            disabled>
+                                            Save AGC Compression Gain
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -125,6 +194,9 @@
         const SERVER_URL_ID = "cef520a9-bcb5-4fc6-87f7-82804eee2b20";
         const BACKGROUND_IMAGE_ID = "d1f3b2c4-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
         const RESET_ID = "f0e1d2c3-b4a5-6789-0abc-def123456789";
+        const AFE_LINEAR_GAIN_ID = "a1b2c3d4-e5f6-4789-0abc-def123456789";
+        const AGC_TARGET_LEVEL_ID = "b2c3d4e5-f6a7-4890-1bcd-ef2345678901";
+        const AGC_COMPRESSION_GAIN_ID = "c3d4e5f6-a7b8-4901-2cde-f34567890123";
 
         // global variables
         let device = null;
@@ -156,6 +228,22 @@
         const toastMessage = document.getElementById('toastMessage');
         const resetNotSupportedModal = document.getElementById('resetNotSupportedModal');
 
+        // AFE related DOM elements
+        const afeLinearGainRange = document.getElementById('afeLinearGainRange');
+        const afeLinearGainValue = document.getElementById('afeLinearGainValue');
+        const saveAfeLinearGainButton = document.getElementById('saveAfeLinearGainButton');
+        const afeLinearGainTitle = document.getElementById('afeLinearGainTitle');
+
+        const agcTargetLevelRange = document.getElementById('agcTargetLevelRange');
+        const agcTargetLevelValue = document.getElementById('agcTargetLevelValue');
+        const saveAgcTargetLevelButton = document.getElementById('saveAgcTargetLevelButton');
+        const agcTargetLevelTitle = document.getElementById('agcTargetLevelTitle');
+
+        const agcCompressionGainRange = document.getElementById('agcCompressionGainRange');
+        const agcCompressionGainValue = document.getElementById('agcCompressionGainValue');
+        const saveAgcCompressionGainButton = document.getElementById('saveAgcCompressionGainButton');
+        const agcCompressionGainTitle = document.getElementById('agcCompressionGainTitle');
+
         // Track modified fields
         const modifiedFields = {
             ssid: false,
@@ -175,7 +263,9 @@
         // Clear field modification mark
         function clearFieldModification(fieldName, titleElement) {
             modifiedFields[fieldName] = false;
-            titleElement.textContent = titleElement.textContent.replace(' *', '');
+            if (titleElement) {
+                titleElement.textContent = titleElement.textContent.replace(' *', '');
+            }
             updateSaveButtonState();
         }
 
@@ -335,6 +425,11 @@
             backgroundImage.disabled = false;
             clearBgButton.disabled = false;
             controlPanel.classList.remove('opacity-50', 'pointer-events-none');
+
+            // Enable AFE controls
+            afeLinearGainRange.disabled = false;
+            agcTargetLevelRange.disabled = false;
+            agcCompressionGainRange.disabled = false;
         }
 
         // Disable all controls
@@ -348,6 +443,14 @@
             writeBgButton.disabled = true;
             clearBgButton.disabled = true;
             controlPanel.classList.add('opacity-50', 'pointer-events-none');
+
+            // Disable AFE controls
+            afeLinearGainRange.disabled = true;
+            agcTargetLevelRange.disabled = true;
+            agcCompressionGainRange.disabled = true;
+            saveAfeLinearGainButton.disabled = true;
+            saveAgcTargetLevelButton.disabled = true;
+            saveAgcCompressionGainButton.disabled = true;
         }
 
         // Reads Characteristic
@@ -387,6 +490,11 @@
                 await readCharacteristic(SSID_ID, ssidInput);
                 await readCharacteristic(PASS_ID, passInput);
                 await readCharacteristic(SERVER_URL_ID, serverUrlInput);
+
+                // Load AFE parameters
+                await readAfeLinearGain();
+                await readAgcTargetLevel();
+                await readAgcCompressionGain();
 
                 // Clear all modification marks
                 clearFieldModification('ssid', ssidTitle);
@@ -613,6 +721,173 @@
             clearBackgroundImage();
             showNotification('Message', 'Background image cleared');
         });
+
+        // Read AFE Linear Gain (string format f32)
+        async function readAfeLinearGain() {
+            if (!isConnected || !service) return false;
+            try {
+                const characteristic = await service.getCharacteristic(AFE_LINEAR_GAIN_ID);
+                const value = await characteristic.readValue();
+                const decoder = new TextDecoder();
+                const stringValue = decoder.decode(value);
+                const gain = parseFloat(stringValue);
+                if (!isNaN(gain)) {
+                    afeLinearGainRange.value = Math.round(gain * 10);
+                    afeLinearGainValue.textContent = gain.toFixed(1);
+                    // Reset title (remove not supported label)
+                    afeLinearGainTitle.textContent = 'AFE Linear Gain';
+                    saveAfeLinearGainButton.disabled = true;
+                }
+                return true;
+            } catch (error) {
+                console.error('Failed to read AFE Linear Gain:', error);
+                // Backward compatibility: disable this control
+                afeLinearGainRange.disabled = true;
+                saveAfeLinearGainButton.disabled = true;
+                afeLinearGainTitle.textContent = 'AFE Linear Gain (Not Supported)';
+                return false;
+            }
+        }
+
+        // Read AGC Target Level (i32, 4 bytes little endian)
+        async function readAgcTargetLevel() {
+            if (!isConnected || !service) return false;
+            try {
+                const characteristic = await service.getCharacteristic(AGC_TARGET_LEVEL_ID);
+                const value = await characteristic.readValue();
+                // value is already DataView, use directly
+                const level = value.getInt32(0, true);
+                agcTargetLevelRange.value = level;
+                agcTargetLevelValue.textContent = level;
+                // Reset title (remove not supported label)
+                agcTargetLevelTitle.textContent = 'AGC Target Level';
+                saveAgcTargetLevelButton.disabled = true;
+                return true;
+            } catch (error) {
+                console.error('Failed to read AGC Target Level:', error);
+                // Backward compatibility: disable this control
+                agcTargetLevelRange.disabled = true;
+                saveAgcTargetLevelButton.disabled = true;
+                agcTargetLevelTitle.textContent = 'AGC Target Level (Not Supported)';
+                return false;
+            }
+        }
+
+        // Read AGC Compression Gain (i32, 4 bytes little endian)
+        async function readAgcCompressionGain() {
+            if (!isConnected || !service) return false;
+            try {
+                const characteristic = await service.getCharacteristic(AGC_COMPRESSION_GAIN_ID);
+                const value = await characteristic.readValue();
+                // value is already DataView, use directly
+                const gain = value.getInt32(0, true);
+                agcCompressionGainRange.value = gain;
+                agcCompressionGainValue.textContent = gain;
+                // Reset title (remove not supported label)
+                agcCompressionGainTitle.textContent = 'AGC Compression Gain';
+                saveAgcCompressionGainButton.disabled = true;
+                return true;
+            } catch (error) {
+                console.error('Failed to read AGC Compression Gain:', error);
+                // Backward compatibility: disable this control
+                agcCompressionGainRange.disabled = true;
+                saveAgcCompressionGainButton.disabled = true;
+                agcCompressionGainTitle.textContent = 'AGC Compression Gain (Not Supported)';
+                return false;
+            }
+        }
+
+        // AFE Linear Gain save function
+        async function saveAfeLinearGain() {
+            if (!isConnected || !service) {
+                showNotification('Error', 'Device not connected', true);
+                return;
+            }
+            try {
+                const gain = parseFloat((afeLinearGainRange.value / 10).toFixed(1));
+                const characteristic = await service.getCharacteristic(AFE_LINEAR_GAIN_ID);
+                const encoder = new TextEncoder();
+                const data = encoder.encode(gain.toString());
+                await characteristic.writeValue(data);
+                showNotification('Success', `AFE Linear Gain set to ${gain}`);
+                clearFieldModification('afeLinearGain', afeLinearGainTitle);
+                saveAfeLinearGainButton.disabled = true;
+            } catch (error) {
+                console.error('Failed to save AFE Linear Gain:', error);
+                showNotification('Error', 'Failed to save AFE Linear Gain: ' + error.message, true);
+            }
+        }
+
+        // AGC Target Level save function
+        async function saveAgcTargetLevel() {
+            if (!isConnected || !service) {
+                showNotification('Error', 'Device not connected', true);
+                return;
+            }
+            try {
+                const level = parseInt(agcTargetLevelRange.value);
+                const characteristic = await service.getCharacteristic(AGC_TARGET_LEVEL_ID);
+                const data = new ArrayBuffer(4);
+                const view = new DataView(data);
+                view.setInt32(0, level, true);
+                await characteristic.writeValue(data);
+                showNotification('Success', `AGC Target Level set to ${level}`);
+                clearFieldModification('agcTargetLevel', agcTargetLevelTitle);
+                saveAgcTargetLevelButton.disabled = true;
+            } catch (error) {
+                console.error('Failed to save AGC Target Level:', error);
+                showNotification('Error', 'Failed to save AGC Target Level: ' + error.message, true);
+            }
+        }
+
+        // AGC Compression Gain save function
+        async function saveAgcCompressionGain() {
+            if (!isConnected || !service) {
+                showNotification('Error', 'Device not connected', true);
+                return;
+            }
+            try {
+                const gain = parseInt(agcCompressionGainRange.value);
+                const characteristic = await service.getCharacteristic(AGC_COMPRESSION_GAIN_ID);
+                const data = new ArrayBuffer(4);
+                const view = new DataView(data);
+                view.setInt32(0, gain, true);
+                await characteristic.writeValue(data);
+                showNotification('Success', `AGC Compression Gain set to ${gain}`);
+                clearFieldModification('agcCompressionGain', agcCompressionGainTitle);
+                saveAgcCompressionGainButton.disabled = true;
+            } catch (error) {
+                console.error('Failed to save AGC Compression Gain:', error);
+                showNotification('Error', 'Failed to save AGC Compression Gain: ' + error.message, true);
+            }
+        }
+
+        // AFE Linear Gain slider event
+        afeLinearGainRange.addEventListener('input', () => {
+            const gain = (afeLinearGainRange.value / 10).toFixed(1);
+            afeLinearGainValue.textContent = gain;
+            markFieldAsModified('afeLinearGain', afeLinearGainTitle);
+            saveAfeLinearGainButton.disabled = false;
+        });
+
+        // AGC Target Level slider event
+        agcTargetLevelRange.addEventListener('input', () => {
+            agcTargetLevelValue.textContent = agcTargetLevelRange.value;
+            markFieldAsModified('agcTargetLevel', agcTargetLevelTitle);
+            saveAgcTargetLevelButton.disabled = false;
+        });
+
+        // AGC Compression Gain slider event
+        agcCompressionGainRange.addEventListener('input', () => {
+            agcCompressionGainValue.textContent = agcCompressionGainRange.value;
+            markFieldAsModified('agcCompressionGain', agcCompressionGainTitle);
+            saveAgcCompressionGainButton.disabled = false;
+        });
+
+        // AFE save button events
+        saveAfeLinearGainButton.addEventListener('click', saveAfeLinearGain);
+        saveAgcTargetLevelButton.addEventListener('click', saveAgcTargetLevel);
+        saveAgcCompressionGainButton.addEventListener('click', saveAgcCompressionGain);
 
         if (!navigator.bluetooth) {
             showNotification('Error', 'Your browser does not support the Web Bluetooth API. Please use Chrome or Edge', true);

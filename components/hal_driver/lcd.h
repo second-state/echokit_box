@@ -104,6 +104,7 @@ typedef struct _lcd_config_t
 /* 导出相关变量 */
 extern lcd_obj_t lcd_dev;
 extern esp_lcd_panel_handle_t panel_handle; /* LCD句柄 */
+extern uint16_t *lcd_dma_buffer;
 /* lcd相关函数 */
 void lcd_init(lcd_cfg_t lcd_config);                         /* 初始化lcd */
 void lcd_clear(uint16_t color);                              /* 清除屏幕 */

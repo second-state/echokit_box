@@ -61,7 +61,28 @@ async fn ws_manager(
                                         .iter()
                                         .cloned()
                                         .collect::<Vec<i16>>();
-                                    let server_event = ServerEvent::AudioChunki16 { data };
+                                    let server_event =
+                                        ServerEvent::AudioChunki16 { data, vowel: 0 };
+                                    tx.send(server_event).await.map_err(|_| {
+                                        anyhow::anyhow!(
+                                            "Failed to send opus audio chunk to channel",
+                                        )
+                                    })?;
+                                }
+                                Err(e) => {
+                                    log::warn!("Failed to decode opus audio chunk: {}", e);
+                                    continue;
+                                }
+                            }
+                        }
+                        Ok(ServerEvent::AudioChunkWithVowel { data, vowel }) => {
+                            match opus_decoder.decode(&data, &mut opus_buffer, false) {
+                                Ok(decoded_samples) => {
+                                    let data = opus_buffer[..decoded_samples]
+                                        .iter()
+                                        .cloned()
+                                        .collect::<Vec<i16>>();
+                                    let server_event = ServerEvent::AudioChunki16 { data, vowel };
                                     tx.send(server_event).await.map_err(|_| {
                                         anyhow::anyhow!(
                                             "Failed to send opus audio chunk to channel",
@@ -171,9 +192,9 @@ pub struct Server {
 impl Server {
     pub async fn new(id: String, url: String) -> anyhow::Result<Self> {
         let u = if url.ends_with("/") {
-            format!("{}{}?opus=true", url, id)
+            format!("{}{}?opus=true&vowel=true", url, id)
         } else {
-            format!("{}/{}?opus=true", url, id)
+            format!("{}/{}?opus=true&vowel=true", url, id)
         };
 
         let (ws, _resp) = tokio_websockets::ClientBuilder::new()
@@ -205,9 +226,15 @@ impl Server {
 
     pub async fn reconnect(&mut self) -> anyhow::Result<()> {
         let u = if self.url.ends_with("/") {
-            format!("{}{}?reconnect=true&opus=true", self.url, self.id)
+            format!(
+                "{}{}?reconnect=true&opus=true&vowel=true",
+                self.url, self.id
+            )
         } else {
-            format!("{}/{}?reconnect=true&opus=true", self.url, self.id)
+            format!(
+                "{}/{}?reconnect=true&opus=true&vowel=true",
+                self.url, self.id
+            )
         };
 
         let (ws, _resp) = tokio_websockets::ClientBuilder::new()

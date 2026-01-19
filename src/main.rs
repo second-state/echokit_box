@@ -1,6 +1,12 @@
 use std::sync::{Arc, Mutex};
 
+use embedded_graphics::{
+    prelude::{Dimensions, RgbColor},
+    Drawable,
+};
 use esp_idf_svc::eventloop::EspSystemEventLoop;
+
+use crate::ui::DisplayTargetDrive;
 
 mod app;
 mod audio;
@@ -21,6 +27,121 @@ struct Setting {
     pass: String,
     server_url: String,
     background_gif: (Vec<u8>, bool), // (data, ended)
+    state: u8,                       // if 1, enter setup mode
+    // AFE parameters
+    afe_linear_gain: f32,
+    agc_target_level_dbfs: i32,
+    agc_compression_gain_db: i32,
+}
+
+impl Setting {
+    fn load_from_nvs(nvs: &esp_idf_svc::nvs::EspDefaultNvs) -> anyhow::Result<Self> {
+        let mut str_buf = [0; 128];
+
+        let ssid = nvs
+            .get_str("ssid", &mut str_buf)
+            .map_err(|e| log::error!("Failed to get ssid: {:?}", e))
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+            .to_string();
+
+        let pass = nvs
+            .get_str("pass", &mut str_buf)
+            .map_err(|e| log::error!("Failed to get pass: {:?}", e))
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+            .to_string();
+
+        static DEFAULT_SERVER_URL: Option<&str> = std::option_env!("DEFAULT_SERVER_URL");
+        log::info!("DEFAULT_SERVER_URL: {:?}", DEFAULT_SERVER_URL);
+
+        let server_url = nvs
+            .get_str("server_url", &mut str_buf)
+            .map_err(|e| log::error!("Failed to get server_url: {:?}", e))
+            .ok()
+            .flatten()
+            .or(DEFAULT_SERVER_URL)
+            .unwrap_or_default()
+            .to_string();
+
+        let background_gif = if nvs.contains("background_gif")? {
+            let background_gif_size = nvs
+                .blob_len("background_gif")
+                .map_err(|e| log::error!("Failed to get background_gif size: {:?}", e))
+                .ok()
+                .flatten()
+                .unwrap_or(1024 * 1024);
+
+            let mut gif_buf = vec![0; background_gif_size];
+            let gif_buf_ = nvs
+                .get_blob("background_gif", &mut gif_buf)?
+                .unwrap_or(ui::DEFAULT_BACKGROUND);
+
+            if gif_buf_.len() != background_gif_size {
+                log::warn!(
+                    "Background GIF size mismatch: expected {}, got {}",
+                    background_gif_size,
+                    gif_buf_.len()
+                );
+                gif_buf_.to_vec()
+            } else {
+                gif_buf
+            }
+        } else {
+            ui::DEFAULT_BACKGROUND.to_vec()
+        };
+
+        let state = nvs.get_u8("state")?.unwrap_or(0);
+
+        let mut afe_linear_gain_buf = [0u8; 4];
+        let afe_linear_gain = nvs
+            .get_blob("afe_linear_gain", &mut afe_linear_gain_buf)
+            .map_err(|e| {
+                log::error!("Failed to get afe_linear_gain: {:?}", e);
+            })
+            .ok()
+            .flatten()
+            .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            .unwrap_or(unsafe { audio::AFE_LINEAR_GAIN });
+
+        let agc_target_level_dbfs = nvs
+            .get_i32("agc_tl_dbfs")
+            .map_err(|e| {
+                log::error!("Failed to get agc_target_level_dbfs: {:?}", e);
+            })
+            .ok()
+            .flatten()
+            .unwrap_or(unsafe { audio::AGC_TARGET_LEVEL_DBFS });
+
+        let agc_compression_gain_db = nvs
+            .get_i32("agc_cg_db")
+            .map_err(|e| {
+                log::error!("Failed to get agc_compression_gain_db: {:?}", e);
+            })
+            .ok()
+            .flatten()
+            .unwrap_or(unsafe { audio::AGC_COMPRESSION_GAIN_DB });
+
+        Ok(Setting {
+            ssid,
+            pass,
+            server_url,
+            background_gif: (background_gif.to_vec(), false),
+            state,
+            afe_linear_gain,
+            agc_target_level_dbfs,
+            agc_compression_gain_db,
+        })
+    }
+
+    fn need_init(&self) -> bool {
+        self.state == 1
+            || self.ssid.is_empty()
+            || self.pass.is_empty()
+            || self.server_url.is_empty()
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -32,54 +153,12 @@ fn main() -> anyhow::Result<()> {
     let partition = esp_idf_svc::nvs::EspDefaultNvsPartition::take()?;
     let nvs = esp_idf_svc::nvs::EspDefaultNvs::new(partition, "setting", true)?;
 
-    let state = nvs.get_u8("state").ok().flatten().unwrap_or(0);
-
-    let mut str_buf = [0; 128];
-    let ssid = nvs
-        .get_str("ssid", &mut str_buf)
-        .map_err(|e| log::error!("Failed to get ssid: {:?}", e))
-        .ok()
-        .flatten()
-        .unwrap_or_default()
-        .to_string();
-
-    let pass = nvs
-        .get_str("pass", &mut str_buf)
-        .map_err(|e| log::error!("Failed to get pass: {:?}", e))
-        .ok()
-        .flatten()
-        .unwrap_or_default()
-        .to_string();
-
-    static DEFAULT_SERVER_URL: Option<&str> = std::option_env!("DEFAULT_SERVER_URL");
-    log::info!("DEFAULT_SERVER_URL: {:?}", DEFAULT_SERVER_URL);
-
-    let mut server_url = nvs
-        .get_str("server_url", &mut str_buf)
-        .map_err(|e| log::error!("Failed to get server_url: {:?}", e))
-        .ok()
-        .flatten()
-        .or(DEFAULT_SERVER_URL)
-        .unwrap_or_default()
-        .to_string();
-
-    // 1MB buffer for GIF
-    let has_bg = nvs.contains("background_gif").unwrap_or(false);
-    let mut gif_buf = if has_bg {
-        vec![0; 1024 * 1024]
-    } else {
-        Vec::new()
-    };
-
-    let background_gif = nvs
-        .get_blob("background_gif", &mut gif_buf)?
-        .unwrap_or(ui::DEFAULT_BACKGROUND);
-
-    log::info!("SSID: {:?}", ssid);
-    log::info!("PASS: {:?}", pass);
-    log::info!("Server URL: {:?}", server_url);
-
+    let mut setting = Setting::load_from_nvs(&nvs)?;
     nvs.set_u8("state", 0).unwrap();
+
+    log::info!("SSID: {:?}", setting.ssid);
+    log::info!("PASS: {:?}", setting.pass);
+    log::info!("Server URL: {:?}", setting.server_url);
 
     log_heap();
 
@@ -88,66 +167,73 @@ fn main() -> anyhow::Result<()> {
 
     crate::start_hal!(peripherals, evt_tx);
 
-    let _ = ui::backgroud(&background_gif, boards::flush_display);
+    let mut framebuffer = Box::new(boards::ui::DisplayBuffer::new(ui::ColorFormat::WHITE));
+    framebuffer.flush()?;
+
+    crate::ui::display_gif(framebuffer.as_mut(), &setting.background_gif.0).unwrap();
 
     // Configures the button
     let mut button = esp_idf_svc::hal::gpio::PinDriver::input(peripherals.pins.gpio0)?;
     button.set_pull(esp_idf_svc::hal::gpio::Pull::Up)?;
-    button.set_interrupt_type(esp_idf_svc::hal::gpio::InterruptType::PosEdge)?;
+    button.set_interrupt_type(esp_idf_svc::hal::gpio::InterruptType::AnyEdge)?;
 
     let b = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
 
-    let mut gui = ui::UI::new(None, boards::flush_display).unwrap();
-
     log_heap();
+
+    let mut chat_ui = boards::ui::new_chat_ui::<6>(framebuffer.as_mut())?;
 
     #[cfg(feature = "extra_server")]
     {
-        gui.state = "Initializing...".to_string();
-        gui.text = "Loading Server URL...".to_string();
-        gui.display_flush().unwrap();
+        chat_ui.set_state("Initializing...".to_string());
+        chat_ui.set_text("Loading Server URL...".to_string());
+
+        chat_ui.render_to_target(framebuffer.as_mut())?;
+        framebuffer.flush()?;
 
         while let Some(event) = evt_rx.blocking_recv() {
             if let app::Event::ServerUrl(url) = event {
                 log::info!("Received ServerUrl event: {}", url);
                 if !url.is_empty() {
-                    server_url = url;
+                    setting.server_url = url;
                 }
                 break;
             }
         }
 
         std::thread::sleep(std::time::Duration::from_millis(500));
-        gui.text = format!("Server URL: {}\nContinuing...", server_url);
-        gui.display_flush().unwrap();
+        chat_ui.set_text(format!("Server URL: {}\nContinuing...", setting.server_url));
+        chat_ui.render_to_target(framebuffer.as_mut())?;
+        framebuffer.flush()?;
         std::thread::sleep(std::time::Duration::from_millis(2000));
     }
 
-    let need_init = {
-        button.is_low() || state == 1 || ssid.is_empty() || pass.is_empty() || server_url.is_empty()
-    };
-    if need_init {
-        gif_buf.clear();
-        let setting = Arc::new(Mutex::new((
-            Setting {
-                ssid,
-                pass,
-                server_url,
-                background_gif: (gif_buf, false), // 1MB
-            },
-            nvs,
-        )));
+    let need_init = button.is_low() || setting.need_init();
 
-        let ble_addr = bt::bt(setting.clone(), evt_tx).unwrap();
+    if need_init {
+        // let mut config_ui = ui::new_config_ui(start_ui, "https://echokit.dev/setup/")?;
+
+        let esp_wifi = esp_idf_svc::wifi::EspWifi::new(peripherals.modem, sysloop, None)?;
+        let mac = esp_wifi.sta_netif().get_mac()?;
+        let dev_id = format!(
+            "{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+            mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
+        );
+
+        setting.background_gif.0.clear();
+        let setting = Arc::new(Mutex::new((setting, nvs)));
+
+        bt::bt(&dev_id, setting.clone(), evt_tx).unwrap();
         log_heap();
 
         let version = env!("CARGO_PKG_VERSION");
 
-        gui.state = "Please setup device by bt".to_string();
-        gui.text = format!("Goto https://echokit.dev/setup/ to set up the device.\nDevice Name: EchoKit-{}\nVersion: {}", ble_addr, version);
-        gui.display_qrcode("https://echokit.dev/setup/").unwrap();
+        let mut config_ui = boards::ui::ConfiguresUI::new(framebuffer.bounding_box(), "https://echokit.dev/setup/", format!("Goto https://echokit.dev/setup/ to set up the device.\nDevice Name: EchoKit-{}\nVersion: {}", dev_id, version)).unwrap();
+
+        config_ui.draw(framebuffer.as_mut())?;
+        framebuffer.flush()?;
 
         #[cfg(feature = "boards")]
         {
@@ -179,17 +265,19 @@ fn main() -> anyhow::Result<()> {
         {
             let mut setting = setting.lock().unwrap();
             if setting.0.background_gif.1 {
-                gui.text = "Testing background GIF...".to_string();
-                gui.display_flush().unwrap();
+                config_ui.set_info("Testing background GIF...".to_string());
+                config_ui.draw(framebuffer.as_mut())?;
+                framebuffer.flush()?;
 
                 let mut new_gif = Vec::new();
                 std::mem::swap(&mut setting.0.background_gif.0, &mut new_gif);
 
-                let _ = ui::backgroud(&new_gif, boards::flush_display);
+                crate::ui::display_gif(framebuffer.as_mut(), &new_gif).unwrap();
                 log::info!("Background GIF set from NVS");
 
-                gui.text = "Background GIF set OK".to_string();
-                gui.display_flush().unwrap();
+                config_ui.set_info("Background GIF set OK".to_string());
+                config_ui.draw(framebuffer.as_mut())?;
+                framebuffer.flush()?;
 
                 setting
                     .1
@@ -203,15 +291,28 @@ fn main() -> anyhow::Result<()> {
         unsafe { esp_idf_svc::sys::esp_restart() }
     }
 
-    gui.state = "Connecting to wifi...".to_string();
-    gui.text.clear();
-    gui.display_flush().unwrap();
+    unsafe {
+        audio::AFE_LINEAR_GAIN = setting.afe_linear_gain;
+        audio::AGC_TARGET_LEVEL_DBFS = setting.agc_target_level_dbfs;
+        audio::AGC_COMPRESSION_GAIN_DB = setting.agc_compression_gain_db;
+    }
 
-    let _wifi = network::wifi(&ssid, &pass, peripherals.modem, sysloop.clone());
+    chat_ui.set_state("Connecting to wifi...".to_string());
+    chat_ui.render_to_target(framebuffer.as_mut())?;
+    framebuffer.flush()?;
+
+    let _wifi = network::wifi(
+        &setting.ssid,
+        &setting.pass,
+        peripherals.modem,
+        sysloop.clone(),
+    );
     if _wifi.is_err() {
-        gui.state = "Failed to connect to wifi".to_string();
-        gui.text = "Press K0 to open settings".to_string();
-        gui.display_flush().unwrap();
+        chat_ui.set_state("Failed to connect to wifi".to_string());
+        chat_ui.set_text("Press K0 to open settings".to_string());
+        chat_ui.render_to_target(framebuffer.as_mut())?;
+        framebuffer.flush()?;
+
         b.block_on(button.wait_for_falling_edge()).unwrap();
         nvs.set_u8("state", 1).unwrap();
         unsafe { esp_idf_svc::sys::esp_restart() }
@@ -226,18 +327,23 @@ fn main() -> anyhow::Result<()> {
         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
     );
 
-    gui.state = "Connecting to server...".to_string();
-    gui.text.clear();
-    gui.display_flush().unwrap();
+    chat_ui.set_state("Connecting to server...".to_string());
+    chat_ui.set_text("".to_string());
+    chat_ui.render_to_target(framebuffer.as_mut())?;
+    framebuffer.flush()?;
 
     log_heap();
 
-    gui.state = "Failed to connect to server".to_string();
-    gui.text = format!("Please check your server URL: {server_url}\nPress K0 to open settings");
-    let server = b.block_on(ws::Server::new(dev_id, server_url));
+    chat_ui.set_state("Failed to connect to server".to_string());
+    chat_ui.set_text(format!(
+        "Please check your server URL: {}\nPress K0 to open settings",
+        setting.server_url
+    ));
+    let server = b.block_on(ws::Server::new(dev_id, setting.server_url));
     if server.is_err() {
         log::info!("Failed to connect to server: {:?}", server.err());
-        gui.display_flush().unwrap();
+        chat_ui.render_to_target(framebuffer.as_mut())?;
+        framebuffer.flush()?;
         b.block_on(button.wait_for_falling_edge()).unwrap();
         nvs.set_u8("state", 1).unwrap();
         unsafe { esp_idf_svc::sys::esp_restart() }
@@ -247,7 +353,7 @@ fn main() -> anyhow::Result<()> {
 
     crate::start_audio_workers!(peripherals, rx1, evt_tx.clone(), &b);
 
-    let ws_task = app::main_work(server, tx1, evt_rx, Some(background_gif));
+    let ws_task = app::main_work(server, tx1, evt_rx, &mut framebuffer, &mut chat_ui);
 
     b.spawn(async move {
         loop {
