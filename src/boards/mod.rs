@@ -218,7 +218,7 @@ pub fn set_backlight<'d>(
     Ok(())
 }
 
-#[cfg(feature = "base_ui")]
+#[cfg(not(feature = "custom_ui"))]
 pub mod ui {
     use super::*;
 
