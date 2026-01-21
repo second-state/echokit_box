@@ -16,7 +16,6 @@ pub enum Event {
     MicAudioChunk(Vec<i16>),
     MicAudioEnd,
     Vowel(u8),
-    MicInterruptWaitTimeout,
     #[cfg_attr(not(feature = "extra_server"), allow(unused))]
     ServerUrl(String),
 }
@@ -56,18 +55,13 @@ async fn select_evt(
             server.recv().await
         }
     };
-    let timeout_event = if timeout == INTERNAL_TIMEOUT {
-        Some(Event::MicInterruptWaitTimeout)
-    } else {
-        Some(Event::Event(Event::IDLE))
-    };
 
     let timeout_f = tokio::time::sleep(timeout);
 
     tokio::select! {
         _ = timeout_f => {
             // log::info!("Event select timeout");
-            timeout_event
+             Some(Event::Event(Event::IDLE))
         }
         Some(evt) = evt_rx.recv() => {
             match &evt {
@@ -83,9 +77,6 @@ async fn select_evt(
                 Event::ServerEvent(_) => {
                     log::info!("[Select] Received ServerEvent: {:?}", evt);
                 },
-                Event::MicInterruptWaitTimeout => {
-                    log::info!("[Select] Received MicInterruptWaitTimeout");
-                }
                 Event::Vowel(v) => {
                     log::debug!("[Select] Received Vowel: {}", v);
                 }
@@ -157,8 +148,21 @@ impl DownloadMetrics {
 }
 
 const SPEED_LIMIT: f64 = 1.0;
-const INTERNAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
 const NORMAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60 * 5);
+
+struct SubmitState {
+    submit_audio: f32,
+    start_submit: bool,
+    audio_buffer: Vec<i16>,
+}
+
+impl SubmitState {
+    fn clear(&mut self) {
+        self.submit_audio = 0.0;
+        self.start_submit = false;
+        self.audio_buffer.clear();
+    }
+}
 
 pub async fn main_work<'d, const N: usize>(
     mut server: Server,
@@ -182,10 +186,12 @@ pub async fn main_work<'d, const N: usize>(
 
     let mut state = State::Idle;
 
-    let mut submit_audio = 0.0;
-    let mut start_submit = false;
+    let mut submit_state = SubmitState {
+        submit_audio: 0.0,
+        start_submit: false,
+        audio_buffer: Vec::with_capacity(8192),
+    };
 
-    let mut audio_buffer = Vec::with_capacity(8192);
     let mut recv_audio_buffer = Vec::with_capacity(8192);
 
     let mut metrics = DownloadMetrics::new();
@@ -200,7 +206,7 @@ pub async fn main_work<'d, const N: usize>(
     let mut wait_notify = false;
     let mut init_hello = false;
     let mut allow_interrupt = false;
-    let mut timeout = NORMAL_TIMEOUT;
+    let timeout = NORMAL_TIMEOUT;
 
     while let Some(evt) = select_evt(&mut evt_rx, &mut server, &notify, wait_notify, timeout).await
     {
@@ -228,9 +234,7 @@ pub async fn main_work<'d, const N: usize>(
                     log::info!("Waiting for hello response");
                     let _ = hello_notify.notified().await;
 
-                    start_submit = false;
-                    submit_audio = 0.0;
-                    audio_buffer = Vec::with_capacity(8192);
+                    submit_state.clear();
 
                     log::info!("Hello response received");
 
@@ -313,36 +317,32 @@ pub async fn main_work<'d, const N: usize>(
                 framebuffer.flush()?;
             }
             Event::MicAudioChunk(data) if state == State::Listening => {
-                submit_audio += data.len() as f32 / 16000.0;
-                audio_buffer.extend_from_slice(&data);
+                submit_state.submit_audio += data.len() as f32 / 16000.0;
+                submit_state.audio_buffer.extend_from_slice(&data);
 
-                if audio_buffer.len() >= 8192 && submit_audio > 0.5 {
-                    if !start_submit {
+                if submit_state.audio_buffer.len() >= 8192 && submit_state.submit_audio > 0.5 {
+                    if !submit_state.start_submit {
                         log::info!("Start submitting audio");
                         server
                             .send_client_command(protocol::ClientCommand::StartChat)
                             .await?;
                         log::info!("Submitted StartChat command");
+                        gui.set_state("Listening...".to_string());
+                        gui.render_to_target(framebuffer)?;
+                        framebuffer.flush()?;
                     }
-                    start_submit = true;
-                    server.send_client_audio_chunk_i16(audio_buffer).await?;
-                    audio_buffer = Vec::with_capacity(8192);
-
-                    gui.set_state("Listening...".to_string());
-                    gui.render_to_target(framebuffer)?;
-                    framebuffer.flush()?;
+                    submit_state.start_submit = true;
+                    server
+                        .send_client_audio_chunk_i16(submit_state.audio_buffer)
+                        .await?;
+                    submit_state.audio_buffer = Vec::with_capacity(8192);
                 }
             }
             Event::MicAudioChunk(data) if state == State::Speaking && allow_interrupt => {
-                submit_audio += data.len() as f32 / 16000.0;
-                audio_buffer.extend_from_slice(&data);
-                if audio_buffer.len() == 0 {
-                    player_tx
-                        .send(AudioEvent::StopSpeech)
-                        .map_err(|_| anyhow::anyhow!("Error sending stop"))?;
-                }
+                submit_state.submit_audio += data.len() as f32 / 16000.0;
+                submit_state.audio_buffer.extend_from_slice(&data);
 
-                if submit_audio > 0.6 {
+                if submit_state.submit_audio > 0.6 {
                     state = State::Listening;
                     gui.set_state("Listening...".to_string());
                     gui.render_to_target(framebuffer)?;
@@ -350,7 +350,7 @@ pub async fn main_work<'d, const N: usize>(
 
                     server.reconnect_with_retry(3).await?;
 
-                    start_submit = true;
+                    submit_state.start_submit = true;
                     server
                         .send_client_command(protocol::ClientCommand::StartChat)
                         .await?;
@@ -365,76 +365,6 @@ pub async fn main_work<'d, const N: usize>(
             }
             Event::MicAudioEnd => {
                 log::info!("Received MicAudioEnd");
-                if state != State::Listening && state != State::Speaking {
-                    log::debug!("Received MicAudioEnd while no Listening/Speaking state, ignoring");
-                    continue;
-                }
-
-                if state == State::Speaking {
-                    if !allow_interrupt {
-                        log::info!("Interrupt not allowed, ignoring MicAudioEnd");
-                        continue;
-                    }
-                    log::info!("resuming to Listening state due to MicAudioEnd");
-                    player_tx
-                        .send(AudioEvent::StartSpeech)
-                        .map_err(|_| anyhow::anyhow!("Error sending stop"))?;
-                    log::info!("Waiting for stop speech response");
-                    submit_audio = 0.0;
-                    start_submit = false;
-                    audio_buffer.clear();
-                    continue;
-                }
-
-                log::info!("submit_audio = {}", submit_audio);
-
-                if submit_audio > 0.5 {
-                    if !audio_buffer.is_empty() {
-                        server.send_client_audio_chunk_i16(audio_buffer).await?;
-                        audio_buffer = Vec::with_capacity(8192);
-                    }
-                    server
-                        .send_client_command(protocol::ClientCommand::Submit)
-                        .await?;
-                    log::info!("Submitted audio");
-                    need_compute = metrics.is_timeout();
-
-                    submit_audio = 0.0;
-                    start_submit = false;
-                    wait_notify = false;
-                    state = State::Waiting;
-                    gui.set_state("Waiting...".to_string());
-                    gui.render_to_target(framebuffer)?;
-                    framebuffer.flush()?;
-                }
-            }
-            Event::MicInterruptWaitTimeout => {
-                log::info!("Received MicInterruptWaitTimeout");
-                timeout = NORMAL_TIMEOUT;
-                if start_submit {
-                    log::info!("Already started submit, ignoring timeout");
-                    continue;
-                }
-                server
-                    .send_client_command(protocol::ClientCommand::StartChat)
-                    .await?;
-                log::info!("Submitted StartChat command due to interrupt timeout");
-
-                server.send_client_audio_chunk_i16(audio_buffer).await?;
-                server
-                    .send_client_command(protocol::ClientCommand::Submit)
-                    .await?;
-                log::info!("Submitted audio");
-                need_compute = metrics.is_timeout();
-
-                audio_buffer = Vec::with_capacity(8192);
-                submit_audio = 0.0;
-                start_submit = false;
-                wait_notify = false;
-                state = State::Waiting;
-                gui.set_state("Waiting...".to_string());
-                gui.render_to_target(framebuffer)?;
-                framebuffer.flush()?;
             }
             Event::ServerEvent(ServerEvent::ASR { text }) => {
                 log::info!("Received ASR: {:?}", text);
@@ -533,6 +463,10 @@ pub async fn main_work<'d, const N: usize>(
 
             Event::ServerEvent(ServerEvent::EndResponse) => {
                 log::info!("Received request end");
+                crate::audio::VAD_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
+
+                submit_state.clear();
+
                 state = State::Listening;
                 gui.set_state("Ready".to_string());
                 gui.render_to_target(framebuffer)?;
@@ -571,6 +505,25 @@ pub async fn main_work<'d, const N: usize>(
                 log::warn!(
                     "Received deprecated AudioChunkWithVowel, please use AudioChunki16 instead"
                 );
+            }
+            Event::ServerEvent(ServerEvent::EndVad) => {
+                log::info!("Received EndVad event from server");
+                crate::audio::VAD_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
+
+                if state != State::Listening && state != State::Speaking {
+                    log::debug!("Received EndVad while no Listening/Speaking state, ignoring");
+                    continue;
+                }
+
+                need_compute = metrics.is_timeout();
+
+                submit_state.clear();
+
+                wait_notify = false;
+                state = State::Waiting;
+                gui.set_state("Waiting...".to_string());
+                gui.render_to_target(framebuffer)?;
+                framebuffer.flush()?;
             }
             Event::ServerUrl(url) => {
                 log::info!("Received ServerUrl: {}", url);

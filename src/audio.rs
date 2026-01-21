@@ -162,13 +162,24 @@ pub type PlayerRx = tokio::sync::mpsc::UnboundedReceiver<AudioEvent>;
 pub type EventTx = tokio::sync::mpsc::Sender<crate::app::Event>;
 pub type EventRx = tokio::sync::mpsc::Receiver<crate::app::Event>;
 
+pub static VAD_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 fn afe_worker(afe_handle: Arc<AFE>, tx: EventTx) -> anyhow::Result<()> {
     log::info!("AFE worker started");
     crate::log_heap();
     crate::print_stack_high();
     let mut speech = false;
+    let mut send_chunks = 0;
 
     loop {
+        if send_chunks > (16000 * 30) {
+            log::warn!("Too many chunks without speech end, resetting AFE");
+            afe_handle.reset();
+            speech = false;
+            send_chunks = 0;
+            continue;
+        }
+
         let result = afe_handle.fetch();
         if let Err(_e) = &result {
             continue;
@@ -178,14 +189,33 @@ fn afe_worker(afe_handle: Arc<AFE>, tx: EventTx) -> anyhow::Result<()> {
             continue;
         }
 
+        let global_vad = VAD_ACTIVE.load(std::sync::atomic::Ordering::Relaxed);
+
         if result.speech {
             if !speech {
                 log::info!("Speech started");
+                VAD_ACTIVE.store(true, std::sync::atomic::Ordering::Relaxed);
+                speech = true;
+                send_chunks = 0;
             }
-            speech = true;
+
+            // changed by server vad end
+            if !global_vad {
+                continue;
+            }
+
             log::debug!("Speech detected, sending {} bytes", result.data.len());
             tx.blocking_send(crate::app::Event::MicAudioChunk(result.data))
                 .map_err(|_| anyhow::anyhow!("Failed to send data"))?;
+            send_chunks += 512;
+            continue;
+        }
+
+        if global_vad {
+            log::debug!("Speech detected, sending {} bytes", result.data.len());
+            tx.blocking_send(crate::app::Event::MicAudioChunk(result.data))
+                .map_err(|_| anyhow::anyhow!("Failed to send data"))?;
+            send_chunks += 512;
             continue;
         }
 
@@ -233,7 +263,6 @@ pub fn player_welcome(
 pub enum AudioEvent {
     Hello(Arc<tokio::sync::Notify>),
     SetHello(Vec<u8>),
-    StopSpeech,
     StartSpeech,
     ClearSpeech,
     SpeechChunki16(Vec<i16>),
@@ -422,9 +451,6 @@ impl<const MAX: usize> RingBuffer<MAX> {
     }
 }
 
-static PLAYING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-static VOL_NUM: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(5);
-
 const CHUNK_SIZE: usize = 256;
 // const CHUNK_SIZE: usize = 512;
 
@@ -471,17 +497,14 @@ fn audio_task_run(
     let offset = crate::boards::AFE_AEC_OFFSET;
 
     let mut hello_wav = WAKE_WAV.to_vec();
-    let mut allow_speech = false;
-    let mut speech = false;
 
-    send_buffer.volume = VOL_NUM.load(std::sync::atomic::Ordering::Relaxed) as i16;
+    send_buffer.volume = 5;
 
     loop {
         if let Ok(event) = rx.try_recv() {
             match event {
                 AudioEvent::Hello(notify) => {
                     log::info!("Received Hello event");
-                    allow_speech = true;
                     send_buffer.clear();
                     send_buffer.push_u8(&hello_wav);
                     send_buffer.push_back_end_speech(notify);
@@ -489,12 +512,7 @@ fn audio_task_run(
                 AudioEvent::SetHello(hello) => {
                     hello_wav = hello;
                 }
-                AudioEvent::StartSpeech => {
-                    allow_speech = true;
-                }
-                AudioEvent::StopSpeech => {
-                    allow_speech = false;
-                }
+                AudioEvent::StartSpeech => {}
                 AudioEvent::ClearSpeech => {
                     send_buffer.clear();
                 }
@@ -510,20 +528,11 @@ fn audio_task_run(
                     send_buffer.push_back_end_speech(sender);
                 }
                 AudioEvent::VolSet(vol) => {
-                    #[cfg(not(feature = "box"))]
-                    {
-                        send_buffer.volume = vol as i16;
-                    }
-                    #[cfg(feature = "box")]
-                    {
-                        crate::boards::atom_box::set_volum(vol);
-                    }
-
-                    VOL_NUM.store(vol, std::sync::atomic::Ordering::Relaxed);
+                    send_buffer.volume = vol as i16;
                 }
             }
         }
-        let play_data_ = if allow_speech {
+        let play_data_ = {
             loop {
                 break match send_buffer.get_chunk() {
                     Some(SendBufferItem::Audio(v)) => Some(v),
@@ -538,17 +547,7 @@ fn audio_task_run(
                     None => None,
                 };
             }
-        } else {
-            None
         };
-
-        if play_data_.is_some() && !speech {
-            speech = true;
-            PLAYING.store(speech, std::sync::atomic::Ordering::Relaxed);
-        } else if play_data_.is_none() && speech {
-            speech = false;
-            PLAYING.store(speech, std::sync::atomic::Ordering::Relaxed);
-        }
 
         let play_data = play_data_.as_deref().unwrap_or(&empty_buffer);
 
