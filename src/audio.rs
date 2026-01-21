@@ -7,9 +7,9 @@ use esp_idf_svc::sys::esp_sr;
 
 const SAMPLE_RATE: u32 = 16000;
 
-pub static mut AFE_LINEAR_GAIN: f32 = 1.0;
+pub static mut AFE_LINEAR_GAIN: f32 = 1.5;
 pub static mut AGC_TARGET_LEVEL_DBFS: i32 = 3;
-pub static mut AGC_COMPRESSION_GAIN_DB: i32 = 9;
+pub static mut AGC_COMPRESSION_GAIN_DB: i32 = 15;
 
 unsafe fn afe_init() -> (
     *mut esp_sr::esp_afe_sr_iface_t,
