@@ -121,7 +121,7 @@ impl DownloadMetrics {
         Self {
             start_time: std::time::Instant::now() - std::time::Duration::from_secs(300),
             data_size: 0,
-            timeout_sec: 30,
+            timeout_sec: 15,
         }
     }
 
