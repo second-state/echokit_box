@@ -28,7 +28,7 @@ unsafe fn afe_init() -> (
     afe_config.pcm_config.sample_rate = 16000;
     afe_config.afe_ringbuf_size = 40;
     afe_config.vad_min_noise_ms = 400;
-    afe_config.vad_min_speech_ms = 250;
+    afe_config.vad_min_speech_ms = 200;
     // afe_config.vad_delay_ms = 250; // Don't change it!!
     afe_config.vad_mode = esp_sr::vad_mode_t_VAD_MODE_4;
 
@@ -172,11 +172,12 @@ fn afe_worker(afe_handle: Arc<AFE>, tx: EventTx) -> anyhow::Result<()> {
     let mut send_chunks = 0;
 
     loop {
-        if send_chunks > (16000 * 30) {
+        if send_chunks > (16000 * 60) / 512 {
             log::warn!("Too many chunks without speech end, resetting AFE");
             afe_handle.reset();
             speech = false;
             send_chunks = 0;
+            VAD_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
             continue;
         }
 
@@ -207,7 +208,7 @@ fn afe_worker(afe_handle: Arc<AFE>, tx: EventTx) -> anyhow::Result<()> {
             log::debug!("Speech detected, sending {} bytes", result.data.len());
             tx.blocking_send(crate::app::Event::MicAudioChunk(result.data))
                 .map_err(|_| anyhow::anyhow!("Failed to send data"))?;
-            send_chunks += 512;
+            send_chunks += 1;
             continue;
         }
 
@@ -215,7 +216,7 @@ fn afe_worker(afe_handle: Arc<AFE>, tx: EventTx) -> anyhow::Result<()> {
             log::debug!("Speech detected, sending {} bytes", result.data.len());
             tx.blocking_send(crate::app::Event::MicAudioChunk(result.data))
                 .map_err(|_| anyhow::anyhow!("Failed to send data"))?;
-            send_chunks += 512;
+            send_chunks += 1;
             continue;
         }
 

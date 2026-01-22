@@ -225,6 +225,8 @@ pub async fn main_work<'d, const N: usize>(
                     gui.render_to_target(framebuffer)?;
                     framebuffer.flush()?;
 
+                    crate::audio::VAD_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
+
                     server.reconnect_with_retry(3).await?;
 
                     let hello_notify = Arc::new(tokio::sync::Notify::new());
@@ -320,18 +322,19 @@ pub async fn main_work<'d, const N: usize>(
                 submit_state.submit_audio += data.len() as f32 / 16000.0;
                 submit_state.audio_buffer.extend_from_slice(&data);
 
-                if submit_state.audio_buffer.len() >= 8192 && submit_state.submit_audio > 0.5 {
-                    if !submit_state.start_submit {
-                        log::info!("Start submitting audio");
-                        server
-                            .send_client_command(protocol::ClientCommand::StartChat)
-                            .await?;
-                        log::info!("Submitted StartChat command");
-                        gui.set_state("Listening...".to_string());
-                        gui.render_to_target(framebuffer)?;
-                        framebuffer.flush()?;
-                    }
+                if !submit_state.start_submit {
+                    log::info!("Start submitting audio");
+                    server
+                        .send_client_command(protocol::ClientCommand::StartChat)
+                        .await?;
+                    log::info!("Submitted StartChat command");
+                    gui.set_state("Listening...".to_string());
+                    gui.render_to_target(framebuffer)?;
+                    framebuffer.flush()?;
                     submit_state.start_submit = true;
+                }
+
+                if submit_state.audio_buffer.len() >= 8192 && submit_state.submit_audio > 0.3 {
                     server
                         .send_client_audio_chunk_i16(submit_state.audio_buffer)
                         .await?;
@@ -361,14 +364,14 @@ pub async fn main_work<'d, const N: usize>(
                 }
             }
             Event::MicAudioChunk(_) => {
-                log::debug!("Received MicAudioChunk while no Listening/Speaking state, ignoring");
+                log::info!("Received MicAudioChunk while no Listening/Speaking state, ignoring");
+                audio::VAD_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
             }
             Event::MicAudioEnd => {
                 log::info!("Received MicAudioEnd");
             }
             Event::ServerEvent(ServerEvent::ASR { text }) => {
                 log::info!("Received ASR: {:?}", text);
-                state = State::Speaking;
                 gui.set_state("ASR".to_string());
                 gui.set_asr(text.trim().to_string());
                 gui.render_to_target(framebuffer)?;
@@ -382,10 +385,7 @@ pub async fn main_work<'d, const N: usize>(
             }
             Event::ServerEvent(ServerEvent::StartAudio { text }) => {
                 start_audio = true;
-                if state != State::Speaking {
-                    log::debug!("Received StartAudio while not in speaking state");
-                    continue;
-                }
+                state = State::Speaking;
                 log::info!("Received audio start: {:?}", text);
                 gui.set_state(format!("[{:.2}x]|Speaking...", speed));
                 gui.set_text(text.trim().to_string());

@@ -189,7 +189,7 @@ pub struct Server {
     rx: tokio::sync::mpsc::Receiver<ServerEvent>,
 }
 
-const EXTRA_PARAMETERS: &str = "opus=true&vowel=true&server_vad=true";
+const EXTRA_PARAMETERS: &str = "opus=true&vowel=true&stream_asr=true";
 
 impl Server {
     pub async fn new(id: String, url: String) -> anyhow::Result<Self> {
