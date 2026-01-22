@@ -1,3 +1,4 @@
+use std::collections::LinkedList;
 use std::sync::Arc;
 
 use esp_idf_svc::hal::gpio::AnyIOPin;
@@ -116,6 +117,7 @@ impl AFE {
         unsafe { (afe_handle.as_ref().unwrap().feed.unwrap())(afe_data, data.as_ptr()) }
     }
 
+    #[allow(dead_code)]
     fn fetch(&self) -> Result<AFEResult, i32> {
         let afe_handle = self.handle;
         let afe_data = self.data;
@@ -153,6 +155,31 @@ impl AFE {
             Ok(AFEResult { data, speech })
         }
     }
+
+    fn fetch_without_cache(&self) -> Result<AFEResult, i32> {
+        let afe_handle = self.handle;
+        let afe_data = self.data;
+        unsafe {
+            let result = (afe_handle.as_ref().unwrap().fetch.unwrap())(afe_data)
+                .as_mut()
+                .unwrap();
+
+            if result.ret_value != 0 {
+                return Err(result.ret_value);
+            }
+
+            let data_size = result.data_size;
+            let speech = result.vad_state == esp_sr::vad_state_t_VAD_SPEECH;
+
+            let mut data = Vec::with_capacity((data_size) as usize / 2);
+            if data_size > 0 {
+                let data_ = std::slice::from_raw_parts(result.data, data_size as usize / 2);
+                data.extend_from_slice(data_);
+            }
+
+            Ok(AFEResult { data, speech })
+        }
+    }
 }
 
 pub static WAKE_WAV: &[u8] = include_bytes!("../assets/hello_beep.wav");
@@ -169,19 +196,11 @@ fn afe_worker(afe_handle: Arc<AFE>, tx: EventTx) -> anyhow::Result<()> {
     crate::log_heap();
     crate::print_stack_high();
     let mut speech = false;
-    let mut send_chunks = 0;
+    let mut audio_cache: LinkedList<Vec<i16>> = LinkedList::new();
+    const MAX_SAMPLE_CACHE: usize = 16; // per chunk is 512 samples = 32ms at 16kHz
 
     loop {
-        if send_chunks > (16000 * 60) / 512 {
-            log::warn!("Too many chunks without speech end, resetting AFE");
-            afe_handle.reset();
-            speech = false;
-            send_chunks = 0;
-            VAD_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
-            continue;
-        }
-
-        let result = afe_handle.fetch();
+        let result = afe_handle.fetch_without_cache();
         if let Err(_e) = &result {
             continue;
         }
@@ -197,18 +216,16 @@ fn afe_worker(afe_handle: Arc<AFE>, tx: EventTx) -> anyhow::Result<()> {
                 log::info!("Speech started");
                 VAD_ACTIVE.store(true, std::sync::atomic::Ordering::Relaxed);
                 speech = true;
-                send_chunks = 0;
-            }
-
-            // changed by server vad end
-            if !global_vad {
-                continue;
+                while let Some(data) = audio_cache.pop_front() {
+                    log::debug!("Sending cached {} bytes", data.len());
+                    tx.blocking_send(crate::app::Event::MicAudioChunk(data))
+                        .map_err(|_| anyhow::anyhow!("Failed to send data"))?;
+                }
             }
 
             log::debug!("Speech detected, sending {} bytes", result.data.len());
             tx.blocking_send(crate::app::Event::MicAudioChunk(result.data))
                 .map_err(|_| anyhow::anyhow!("Failed to send data"))?;
-            send_chunks += 1;
             continue;
         }
 
@@ -216,7 +233,6 @@ fn afe_worker(afe_handle: Arc<AFE>, tx: EventTx) -> anyhow::Result<()> {
             log::debug!("Speech detected, sending {} bytes", result.data.len());
             tx.blocking_send(crate::app::Event::MicAudioChunk(result.data))
                 .map_err(|_| anyhow::anyhow!("Failed to send data"))?;
-            send_chunks += 1;
             continue;
         }
 
@@ -226,6 +242,11 @@ fn afe_worker(afe_handle: Arc<AFE>, tx: EventTx) -> anyhow::Result<()> {
                 .map_err(|_| anyhow::anyhow!("Failed to send data"))?;
 
             speech = false;
+        }
+
+        audio_cache.push_back(result.data);
+        if audio_cache.len() > MAX_SAMPLE_CACHE {
+            audio_cache.pop_front();
         }
     }
 }

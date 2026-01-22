@@ -154,6 +154,7 @@ struct SubmitState {
     submit_audio: f32,
     start_submit: bool,
     audio_buffer: Vec<i16>,
+    got_asr_result: bool,
 }
 
 impl SubmitState {
@@ -161,6 +162,7 @@ impl SubmitState {
         self.submit_audio = 0.0;
         self.start_submit = false;
         self.audio_buffer.clear();
+        self.got_asr_result = false;
     }
 }
 
@@ -190,6 +192,7 @@ pub async fn main_work<'d, const N: usize>(
         submit_audio: 0.0,
         start_submit: false,
         audio_buffer: Vec::with_capacity(8192),
+        got_asr_result: false,
     };
 
     let mut recv_audio_buffer = Vec::with_capacity(8192);
@@ -332,6 +335,7 @@ pub async fn main_work<'d, const N: usize>(
                     gui.render_to_target(framebuffer)?;
                     framebuffer.flush()?;
                     submit_state.start_submit = true;
+                    submit_state.got_asr_result = false;
                 }
 
                 if submit_state.audio_buffer.len() >= 8192 && submit_state.submit_audio > 0.3 {
@@ -339,6 +343,19 @@ pub async fn main_work<'d, const N: usize>(
                         .send_client_audio_chunk_i16(submit_state.audio_buffer)
                         .await?;
                     submit_state.audio_buffer = Vec::with_capacity(8192);
+
+                    if submit_state.submit_audio > 10.0 && !submit_state.got_asr_result {
+                        log::info!("No ASR result after 10s audio, ending request");
+                        crate::audio::VAD_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
+
+                        submit_state.clear();
+
+                        state = State::Listening;
+                        gui.set_state("Ready".to_string());
+                        gui.render_to_target(framebuffer)?;
+                        framebuffer.flush()?;
+                        recv_audio_buffer.clear();
+                    }
                 }
             }
             Event::MicAudioChunk(data) if state == State::Speaking && allow_interrupt => {
@@ -354,6 +371,8 @@ pub async fn main_work<'d, const N: usize>(
                     server.reconnect_with_retry(3).await?;
 
                     submit_state.start_submit = true;
+                    submit_state.got_asr_result = false;
+
                     server
                         .send_client_command(protocol::ClientCommand::StartChat)
                         .await?;
@@ -372,6 +391,7 @@ pub async fn main_work<'d, const N: usize>(
             }
             Event::ServerEvent(ServerEvent::ASR { text }) => {
                 log::info!("Received ASR: {:?}", text);
+                submit_state.got_asr_result = true;
                 gui.set_state("ASR".to_string());
                 gui.set_asr(text.trim().to_string());
                 gui.render_to_target(framebuffer)?;
