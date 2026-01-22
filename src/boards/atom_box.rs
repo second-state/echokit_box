@@ -425,8 +425,10 @@ pub mod ui {
         }
 
         pub fn set_avatar_index(&mut self, index: usize) {
-            self.avatar.set_index(index);
-            self.avatar_updated = true;
+            if !self.avatar.image_data.is_empty() {
+                self.avatar.set_index(index);
+                self.avatar_updated = true;
+            }
         }
 
         pub fn clear_update_flags(&mut self) {
@@ -438,7 +440,13 @@ pub mod ui {
 
         pub fn render_to_target(&mut self, target: &mut BoxFrameBuffer) -> anyhow::Result<()> {
             let bounding_box = target.bounding_box();
-            let (state_area_box, asr_area_box, content_area_box) = Self::layout(bounding_box);
+
+            let (state_area_box, asr_area_box, content_area_box) =
+                if self.avatar.image_data.is_empty() {
+                    Self::layout_without_avatar(bounding_box)
+                } else {
+                    Self::layout(bounding_box)
+                };
 
             let mut start_i = 0;
 
@@ -511,6 +519,25 @@ pub mod ui {
             Ok(())
         }
 
+        pub fn layout_without_avatar(bounding_box: Rectangle) -> (Rectangle, Rectangle, Rectangle) {
+            let state_area_box = Rectangle::new(
+                bounding_box.top_left,
+                Size::new(bounding_box.size.width, 32),
+            );
+
+            let asr_area_box = Rectangle::new(
+                bounding_box.top_left + Point::new(0, 32),
+                Size::new(bounding_box.size.width, 64),
+            );
+
+            let content_area_box = Rectangle::new(
+                bounding_box.top_left + Point::new(0, 32 + 64),
+                Size::new(bounding_box.size.width, bounding_box.size.height - 32 - 64),
+            );
+
+            (state_area_box, asr_area_box, content_area_box)
+        }
+
         pub fn layout(bounding_box: Rectangle) -> (Rectangle, Rectangle, Rectangle) {
             let state_area_box = Rectangle::new(
                 bounding_box.top_left + Point::new(96, 0),
@@ -531,11 +558,18 @@ pub mod ui {
         }
     }
 
-    pub fn new_chat_ui<const N: usize>(target: &mut BoxFrameBuffer) -> anyhow::Result<ChatUI<N>> {
+    pub fn new_chat_ui<const N: usize>(
+        target: &mut BoxFrameBuffer,
+        avatar_gif: &[u8],
+    ) -> anyhow::Result<ChatUI<N>> {
         let bounding_box = target.bounding_box();
         let avatar_area_box = Rectangle::new(bounding_box.top_left, Size::new(96, 96));
 
-        let (state_area_box, asr_area_box, content_area_box) = ChatUI::<N>::layout(bounding_box);
+        let (state_area_box, asr_area_box, content_area_box) = if avatar_gif.is_empty() {
+            ChatUI::<N>::layout_without_avatar(bounding_box)
+        } else {
+            ChatUI::<N>::layout(bounding_box)
+        };
         let state_style = PrimitiveStyleBuilder::new()
             .stroke_color(ColorFormat::CSS_DARK_BLUE)
             .stroke_width(1)
@@ -546,9 +580,9 @@ pub mod ui {
         target.draw_iter(pixels)?;
 
         let asr_style = PrimitiveStyleBuilder::new()
-            .stroke_color(ColorFormat::CSS_DARK_CYAN)
+            .stroke_color(ColorFormat::CSS_DARK_SLATE_GRAY)
             .stroke_width(1)
-            .fill_color(ColorFormat::CSS_DARK_CYAN)
+            .fill_color(ColorFormat::CSS_DARK_SLATE_GRAY)
             .build();
 
         let pixels = crate::ui::get_background_pixels(target, asr_area_box, asr_style, 0.5);
@@ -566,7 +600,12 @@ pub mod ui {
 
         target.flush()?;
 
-        let avatar = DynamicImage::new_from_gif(avatar_area_box, crate::ui::AVATAR_GIF)?;
+        let avatar = if avatar_gif.is_empty() {
+            DynamicImage::empty()
+        } else {
+            DynamicImage::new_from_gif(avatar_area_box, avatar_gif).unwrap_or(DynamicImage::empty())
+        };
+
         Ok(ChatUI::new(avatar))
     }
 

@@ -357,6 +357,13 @@ pub struct DynamicImage<const N: usize> {
 }
 
 impl<const N: usize> DynamicImage<N> {
+    pub fn empty() -> Self {
+        Self {
+            display_index: 0,
+            image_data: Vec::new(),
+        }
+    }
+
     pub fn new_from_gif(area: Rectangle, gif_data: &[u8]) -> anyhow::Result<Self> {
         use image::AnimationDecoder;
         let img_gif = image::codecs::gif::GifDecoder::new(std::io::Cursor::new(gif_data))?;
@@ -405,7 +412,9 @@ impl<const N: usize> DynamicImage<N> {
         &self,
         display: &mut D,
     ) -> Result<(), D::Error> {
-        display.draw_iter(self.image_data[self.display_index].iter().cloned())?;
+        if !self.image_data.is_empty() {
+            display.draw_iter(self.image_data[self.display_index].iter().cloned())?;
+        }
         Ok(())
     }
 }

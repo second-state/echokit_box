@@ -183,7 +183,7 @@ fn main() -> anyhow::Result<()> {
 
     log_heap();
 
-    let mut chat_ui = boards::ui::new_chat_ui::<6>(framebuffer.as_mut())?;
+    let mut chat_ui = boards::ui::new_chat_ui::<6>(framebuffer.as_mut(), &[])?;
 
     #[cfg(feature = "extra_server")]
     {
