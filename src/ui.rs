@@ -12,9 +12,6 @@ pub type ColorFormat = Rgb565;
 pub const DEFAULT_BACKGROUND: &[u8] = include_bytes!("../assets/echokit.gif");
 // pub const DEFAULT_BACKGROUND: &[u8] = include_bytes!("../assets/ht.gif");
 
-// pub const LM_PNG: &[u8] = include_bytes!("../assets/lm_320x240.png");
-pub const AVATAR_GIF: &[u8] = include_bytes!("../assets/avatar.gif");
-
 // TextRenderer + CharacterStyle
 #[derive(Debug, Clone)]
 pub struct MyTextStyle(pub U8g2TextStyle<ColorFormat>, pub i32);
@@ -95,6 +92,7 @@ pub trait DisplayTargetDrive:
     DrawTarget<Color = ColorFormat> + GetPixel<Color = ColorFormat>
 {
     fn new(color: ColorFormat) -> Self;
+    fn fill_color(&mut self, color: ColorFormat) -> anyhow::Result<()>;
     fn flush(&mut self) -> anyhow::Result<()>;
     fn fix_background(&mut self) -> anyhow::Result<()>;
 }
@@ -356,6 +354,13 @@ pub struct DynamicImage<const N: usize> {
 }
 
 impl<const N: usize> DynamicImage<N> {
+    pub fn empty() -> Self {
+        Self {
+            display_index: 0,
+            image_data: Vec::new(),
+        }
+    }
+
     pub fn new_from_gif(area: Rectangle, gif_data: &[u8]) -> anyhow::Result<Self> {
         use image::AnimationDecoder;
         let img_gif = image::codecs::gif::GifDecoder::new(std::io::Cursor::new(gif_data))?;
@@ -404,7 +409,9 @@ impl<const N: usize> DynamicImage<N> {
         &self,
         display: &mut D,
     ) -> Result<(), D::Error> {
-        display.draw_iter(self.image_data[self.display_index].iter().cloned())?;
+        self.image_data
+            .get(self.display_index)
+            .map(|pixels| display.draw_iter(pixels.iter().cloned()));
         Ok(())
     }
 }

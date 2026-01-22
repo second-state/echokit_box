@@ -17,6 +17,8 @@ pub enum ServerEvent {
     StartVideo,
     EndVideo,
     EndResponse,
+
+    EndVad,
 }
 
 #[test]

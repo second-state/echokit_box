@@ -226,7 +226,12 @@ macro_rules! start_hal {
                 log::error!("Failed to initialize I2C: {:?}", e);
             }
         }
-    }};
+    }
+    let _backlight = {
+        let mut backlight = crate::boards::backlight_init($peripherals.pins.gpio42.into()).unwrap();
+        crate::boards::set_backlight(&mut backlight, 70).unwrap();
+        backlight
+    };};
 }
 
 #[macro_export]

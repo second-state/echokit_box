@@ -189,12 +189,14 @@ pub struct Server {
     rx: tokio::sync::mpsc::Receiver<ServerEvent>,
 }
 
+const EXTRA_PARAMETERS: &str = "opus=true&vowel=true&stream_asr=true";
+
 impl Server {
     pub async fn new(id: String, url: String) -> anyhow::Result<Self> {
         let u = if url.ends_with("/") {
-            format!("{}{}?opus=true&vowel=true", url, id)
+            format!("{}{}?{}", url, id, EXTRA_PARAMETERS)
         } else {
-            format!("{}/{}?opus=true&vowel=true", url, id)
+            format!("{}/{}?{}", url, id, EXTRA_PARAMETERS)
         };
 
         let (ws, _resp) = tokio_websockets::ClientBuilder::new()
@@ -227,13 +229,13 @@ impl Server {
     pub async fn reconnect(&mut self) -> anyhow::Result<()> {
         let u = if self.url.ends_with("/") {
             format!(
-                "{}{}?reconnect=true&opus=true&vowel=true",
-                self.url, self.id
+                "{}{}?reconnect=true&{}",
+                self.url, self.id, EXTRA_PARAMETERS
             )
         } else {
             format!(
-                "{}/{}?reconnect=true&opus=true&vowel=true",
-                self.url, self.id
+                "{}/{}?reconnect=true&{}",
+                self.url, self.id, EXTRA_PARAMETERS
             )
         };
 

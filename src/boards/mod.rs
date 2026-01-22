@@ -317,6 +317,13 @@ pub mod ui {
 
             s
         }
+
+        fn fill_color(&mut self, color: ColorFormat) -> anyhow::Result<()> {
+            self.buffers.clear(color)?;
+            self.background_buffers.clear(color)?;
+            Ok(())
+        }
+
         fn flush(&mut self) -> anyhow::Result<()> {
             let bounding_box = self.bounding_box();
             let x_start = bounding_box.top_left.x as i32;
@@ -388,8 +395,13 @@ pub mod ui {
             }
         }
 
-        pub fn set_avatar_index(&mut self, index: usize) {
-            self.avatar.set_index(index);
+        pub fn set_avatar_index(&mut self, index: usize) -> bool {
+            if !self.avatar.image_data.is_empty() {
+                self.avatar.set_index(index);
+                true
+            } else {
+                false
+            }
         }
 
         pub fn render_to_target(&mut self, target: &mut FrameBuffer) -> anyhow::Result<()> {
@@ -488,7 +500,10 @@ pub mod ui {
         }
     }
 
-    pub fn new_chat_ui<const N: usize>(target: &mut FrameBuffer) -> anyhow::Result<ChatUI<N>> {
+    pub fn new_chat_ui<const N: usize>(
+        target: &mut FrameBuffer,
+        avatar_gif: &[u8],
+    ) -> anyhow::Result<ChatUI<N>> {
         let bounding_box = target.bounding_box();
 
         let header_area_box = Rectangle::new(
@@ -516,7 +531,7 @@ pub mod ui {
             .fill_color(ColorFormat::CSS_DARK_CYAN)
             .build();
 
-        let pixels = crate::ui::get_background_pixels(target, asr_area_box, asr_style, 0.15);
+        let pixels = crate::ui::get_background_pixels(target, asr_area_box, asr_style, 0.5);
         target.draw_iter(pixels)?;
 
         let content_style = PrimitiveStyleBuilder::new()
@@ -524,13 +539,16 @@ pub mod ui {
             .stroke_width(5)
             .fill_color(ColorFormat::CSS_BLACK)
             .build();
-        let pixels =
-            crate::ui::get_background_pixels(target, content_area_box, content_style, 0.25);
+        let pixels = crate::ui::get_background_pixels(target, content_area_box, content_style, 0.5);
         target.draw_iter(pixels)?;
 
         target.background_buffers.clone_from(&target.buffers);
 
-        let avatar = DynamicImage::new_from_gif(header_area_box, crate::ui::AVATAR_GIF)?;
+        let avatar = if avatar_gif.is_empty() {
+            DynamicImage::empty()
+        } else {
+            DynamicImage::new_from_gif(header_area_box, avatar_gif).unwrap_or(DynamicImage::empty())
+        };
 
         Ok(ChatUI::new(avatar))
     }

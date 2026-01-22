@@ -7,6 +7,7 @@ const SSID_ID: BleUuid = uuid128!("1fda4d6e-2f14-42b0-96fa-453bed238375");
 const PASS_ID: BleUuid = uuid128!("a987ab18-a940-421a-a1d7-b94ee22bccbe");
 const SERVER_URL_ID: BleUuid = uuid128!("cef520a9-bcb5-4fc6-87f7-82804eee2b20");
 const BACKGROUND_GIF_ID: BleUuid = uuid128!("d1f3b2c4-5e6f-4a7b-8c9d-0e1f2a3b4c5d");
+const AVATAR_GIF_ID: BleUuid = uuid128!("e2f4c3b5-6d7e-4f8a-9b0c-1f2e3d4c5b6a");
 const RESET_ID: BleUuid = uuid128!("f0e1d2c3-b4a5-6789-0abc-def123456789");
 const AFE_LINEAR_GAIN_ID: BleUuid = uuid128!("a1b2c3d4-e5f6-4789-0abc-def123456789");
 const AGC_TARGET_LEVEL_ID: BleUuid = uuid128!("b2c3d4e5-f6a7-4890-1bcd-ef2345678901");
@@ -106,6 +107,7 @@ pub fn bt(
     let setting = setting.clone();
     let setting_ = setting.clone();
     let setting_gif = setting.clone();
+    let setting_avatar = setting.clone();
     let setting_afe = setting.clone(); // Extra clone for AFE characteristics
 
     let server_url_characteristic = service.lock().create_characteristic(
@@ -151,8 +153,48 @@ pub fn bt(
             if gif_chunk.len() < 512 {
                 setting.0.background_gif.1 = true; // Mark as valid
             }
+            if setting.0.background_gif.0.len() > 1024 * 1024 {
+                log::warn!("Background GIF size exceeds 1024KB, resetting to default.");
+                setting.0.background_gif.0.clear();
+                setting.0.background_gif.1 = false;
+                args.reject();
+            }
         } else {
             log::error!("Failed to parse new background GIF from bytes.");
+        }
+    });
+
+    let avatar_gif_characteristic = service
+        .lock()
+        .create_characteristic(AVATAR_GIF_ID, NimbleProperties::WRITE);
+    avatar_gif_characteristic.lock().on_write(move |args| {
+        let gif_chunk = args.recv_data();
+        if gif_chunk.len() == 0 {
+            log::info!("Clearing avatar GIF to default.");
+            let mut setting = setting_avatar.lock().unwrap();
+            setting.0.avatar_gif.0.clear();
+            setting.0.avatar_gif.1 = true; // Mark as valid
+            return;
+        }
+
+        if gif_chunk.len() <= 1024 * 1024 && gif_chunk.len() > 0 {
+            log::info!("New avatar GIF received, size: {}", gif_chunk.len());
+            let mut setting = setting_avatar.lock().unwrap();
+            setting.0.avatar_gif.0.extend_from_slice(gif_chunk);
+
+            if gif_chunk.len() < 512 {
+                setting.0.avatar_gif.1 = true; // Mark as valid
+            }
+
+            if setting.0.avatar_gif.0.len() > 128 * 1024 {
+                log::warn!("Avatar GIF size exceeds 128KB, resetting to default.");
+                setting.0.avatar_gif.0.clear();
+                setting.0.avatar_gif.1 = false;
+                args.reject();
+            }
+        } else {
+            log::error!("Failed to parse new avatar GIF from bytes.");
+            args.reject();
         }
     });
 

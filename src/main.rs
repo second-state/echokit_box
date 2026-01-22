@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use embedded_graphics::{
-    prelude::{Dimensions, RgbColor},
+    prelude::{Dimensions, RgbColor, WebColors},
     Drawable,
 };
 use esp_idf_svc::eventloop::EspSystemEventLoop;
@@ -27,6 +27,7 @@ struct Setting {
     pass: String,
     server_url: String,
     background_gif: (Vec<u8>, bool), // (data, ended)
+    avatar_gif: (Vec<u8>, bool),     // (data, ended)
     state: u8,                       // if 1, enter setup mode
     // AFE parameters
     afe_linear_gain: f32,
@@ -93,6 +94,31 @@ impl Setting {
             ui::DEFAULT_BACKGROUND.to_vec()
         };
 
+        let avatar_gif = if nvs.contains("avatar_gif")? {
+            let avatar_gif_size = nvs
+                .blob_len("avatar_gif")
+                .map_err(|e| log::error!("Failed to get avatar_gif size: {:?}", e))
+                .ok()
+                .flatten()
+                .unwrap_or(128 * 1024);
+
+            let mut gif_buf = vec![0; avatar_gif_size];
+            let gif_buf_ = nvs.get_blob("avatar_gif", &mut gif_buf)?.unwrap_or(&[]);
+
+            if gif_buf_.len() != avatar_gif_size {
+                log::warn!(
+                    "Avatar GIF size mismatch: expected {}, got {}",
+                    avatar_gif_size,
+                    gif_buf_.len()
+                );
+                gif_buf_.to_vec()
+            } else {
+                gif_buf
+            }
+        } else {
+            Vec::new()
+        };
+
         let state = nvs.get_u8("state")?.unwrap_or(0);
 
         let mut afe_linear_gain_buf = [0u8; 4];
@@ -128,7 +154,8 @@ impl Setting {
             ssid,
             pass,
             server_url,
-            background_gif: (background_gif.to_vec(), false),
+            background_gif: (background_gif, false),
+            avatar_gif: (avatar_gif, false),
             state,
             afe_linear_gain,
             agc_target_level_dbfs,
@@ -183,7 +210,7 @@ fn main() -> anyhow::Result<()> {
 
     log_heap();
 
-    let mut chat_ui = boards::ui::new_chat_ui::<6>(framebuffer.as_mut())?;
+    let mut chat_ui = boards::ui::new_chat_ui::<6>(framebuffer.as_mut(), &setting.avatar_gif.0)?;
 
     #[cfg(feature = "extra_server")]
     {
@@ -223,6 +250,7 @@ fn main() -> anyhow::Result<()> {
         );
 
         setting.background_gif.0.clear();
+        setting.avatar_gif.0.clear();
         let setting = Arc::new(Mutex::new((setting, nvs)));
 
         bt::bt(&dev_id, setting.clone(), evt_tx).unwrap();
@@ -230,6 +258,7 @@ fn main() -> anyhow::Result<()> {
 
         let version = env!("CARGO_PKG_VERSION");
 
+        framebuffer.fill_color(ui::ColorFormat::CSS_GRAY)?;
         let mut config_ui = boards::ui::ConfiguresUI::new(framebuffer.bounding_box(), "https://echokit.dev/setup/", format!("Goto https://echokit.dev/setup/ to set up the device.\nDevice Name: EchoKit-{}\nVersion: {}", dev_id, version)).unwrap();
 
         config_ui.draw(framebuffer.as_mut())?;
@@ -251,6 +280,8 @@ fn main() -> anyhow::Result<()> {
         }
 
         b.block_on(async {
+            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+
             tokio::select! {
                 _ = button.wait_for_falling_edge() =>{
                     log::info!("Button k0 pressed to enter setup");
@@ -285,6 +316,41 @@ fn main() -> anyhow::Result<()> {
                     .map_err(|e| log::error!("Failed to save background GIF to NVS: {:?}", e))
                     .unwrap();
                 log::info!("Background GIF saved to NVS");
+            }
+
+            if setting.0.avatar_gif.1 {
+                if setting.0.avatar_gif.0.is_empty() {
+                    config_ui.set_info("Clearing avatar GIF to default.".to_string());
+                    config_ui.draw(framebuffer.as_mut())?;
+                    framebuffer.flush()?;
+
+                    setting
+                        .1
+                        .remove("avatar_gif")
+                        .map_err(|e| log::error!("Failed to clear avatar GIF from NVS: {:?}", e))
+                        .unwrap();
+                } else {
+                    config_ui.set_info("Testing avatar GIF...".to_string());
+                    config_ui.draw(framebuffer.as_mut())?;
+                    framebuffer.flush()?;
+
+                    let mut new_gif = Vec::new();
+                    std::mem::swap(&mut setting.0.avatar_gif.0, &mut new_gif);
+
+                    crate::ui::display_gif(framebuffer.as_mut(), &new_gif).unwrap();
+                    log::info!("Avatar GIF set from NVS");
+
+                    config_ui.set_info("Avatar GIF set OK".to_string());
+                    config_ui.draw(framebuffer.as_mut())?;
+                    framebuffer.flush()?;
+
+                    setting
+                        .1
+                        .set_blob("avatar_gif", &new_gif)
+                        .map_err(|e| log::error!("Failed to save avatar GIF to NVS: {:?}", e))
+                        .unwrap();
+                    log::info!("Avatar GIF saved to NVS");
+                }
             }
         }
 
