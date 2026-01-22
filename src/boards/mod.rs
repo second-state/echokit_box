@@ -395,8 +395,13 @@ pub mod ui {
             }
         }
 
-        pub fn set_avatar_index(&mut self, index: usize) {
-            self.avatar.set_index(index);
+        pub fn set_avatar_index(&mut self, index: usize) -> bool {
+            if !self.avatar.image_data.is_empty() {
+                self.avatar.set_index(index);
+                true
+            } else {
+                false
+            }
         }
 
         pub fn render_to_target(&mut self, target: &mut FrameBuffer) -> anyhow::Result<()> {
@@ -495,7 +500,10 @@ pub mod ui {
         }
     }
 
-    pub fn new_chat_ui<const N: usize>(target: &mut FrameBuffer) -> anyhow::Result<ChatUI<N>> {
+    pub fn new_chat_ui<const N: usize>(
+        target: &mut FrameBuffer,
+        avatar_gif: &[u8],
+    ) -> anyhow::Result<ChatUI<N>> {
         let bounding_box = target.bounding_box();
 
         let header_area_box = Rectangle::new(
@@ -536,7 +544,11 @@ pub mod ui {
 
         target.background_buffers.clone_from(&target.buffers);
 
-        let avatar = DynamicImage::new_from_gif(header_area_box, crate::ui::AVATAR_GIF)?;
+        let avatar = if avatar_gif.is_empty() {
+            DynamicImage::empty()
+        } else {
+            DynamicImage::new_from_gif(header_area_box, avatar_gif).unwrap_or(DynamicImage::empty())
+        };
 
         Ok(ChatUI::new(avatar))
     }

@@ -317,9 +317,10 @@ pub async fn main_work<'d, const N: usize>(
                 log::info!("Received event: {:?}", evt);
             }
             Event::Vowel(v) => {
-                gui.set_avatar_index(v as usize);
-                gui.render_to_target(framebuffer)?;
-                framebuffer.flush()?;
+                if gui.set_avatar_index(v as usize) {
+                    gui.render_to_target(framebuffer)?;
+                    framebuffer.flush()?;
+                }
             }
             Event::MicAudioChunk(data) if state == State::Listening => {
                 submit_state.submit_audio += data.len() as f32 / 16000.0;
