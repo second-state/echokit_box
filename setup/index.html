@@ -93,6 +93,31 @@
                         </div>
                     </div>
 
+                    <div class="card bg-base-100 border border-base-300">
+                        <div class="card-body">
+                            <h3 class="card-title text-lg">Avatar Image</h3>
+                            <div class="form-control mb-4">
+                                <label class="label">
+                                    <span class="label-text">Select an avatar image (GIF)</span>
+                                </label>
+                                <input type="file" class="file-input file-input-bordered w-full" id="avatarImage"
+                                    accept=".gif" onchange="validateAndPreviewAvatarFile(this)">
+                                <label class="label">
+                                    <span class="label-text-alt">Must be a GIF file, max 128KB</span>
+                                </label>
+                                <div id="avatarFileError" class="text-error text-sm"></div>
+                                <div id="avatarPreview"
+                                    class="hidden mt-2 w-16 h-16 rounded border border-base-300 bg-cover bg-center">
+                                </div>
+                            </div>
+                            <div class="flex gap-2">
+                                <button class="btn btn-primary flex-1" id="writeAvatarButton" disabled>Set
+                                    Avatar</button>
+                                <button class="btn btn-outline flex-1" id="clearAvatarButton">Clear Avatar</button>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Advanced Settings Collapse Panel -->
                     <div class="collapse collapse-arrow bg-base-200 border border-base-300">
                         <input type="checkbox" id="advancedSettingsToggle" />
@@ -193,6 +218,7 @@
         const PASS_ID = "a987ab18-a940-421a-a1d7-b94ee22bccbe";
         const SERVER_URL_ID = "cef520a9-bcb5-4fc6-87f7-82804eee2b20";
         const BACKGROUND_IMAGE_ID = "d1f3b2c4-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
+        const AVATAR_IMAGE_ID = "e2f4c3b5-6d7e-4f8a-9b0c-1f2e3d4c5b6a";
         const RESET_ID = "f0e1d2c3-b4a5-6789-0abc-def123456789";
         const AFE_LINEAR_GAIN_ID = "a1b2c3d4-e5f6-4789-0abc-def123456789";
         const AGC_TARGET_LEVEL_ID = "b2c3d4e5-f6a7-4890-1bcd-ef2345678901";
@@ -205,6 +231,7 @@
         let isConnected = false;
         let toast = null;
         let selectedBackgroundFile = null;
+        let selectedAvatarFile = null;
 
         // DOM
         const connectButton = document.getElementById('connectButton');
@@ -224,6 +251,11 @@
         const fileError = document.getElementById('fileError');
         const writeBgButton = document.getElementById('writeBgButton');
         const clearBgButton = document.getElementById('clearBgButton');
+        const avatarImage = document.getElementById('avatarImage');
+        const avatarPreview = document.getElementById('avatarPreview');
+        const avatarFileError = document.getElementById('avatarFileError');
+        const writeAvatarButton = document.getElementById('writeAvatarButton');
+        const clearAvatarButton = document.getElementById('clearAvatarButton');
         const notificationToast = document.getElementById('notificationToast');
         const toastMessage = document.getElementById('toastMessage');
         const resetNotSupportedModal = document.getElementById('resetNotSupportedModal');
@@ -331,14 +363,46 @@
             return true;
         }
 
-        // background image
-        function applyBackgroundImage(imageDataUrl) {
-            document.body.style.backgroundImage = `url(${imageDataUrl})`;
+        // validate and preview avatar
+        function validateAndPreviewAvatarFile(input) {
+            const file = input.files[0];
+            avatarFileError.textContent = '';
+            avatarPreview.classList.add('hidden');
+            writeAvatarButton.disabled = true;
+            selectedAvatarFile = null;
+
+            if (file) {
+                // check file type
+                if (!file.type.startsWith('image/gif')) {
+                    avatarFileError.textContent = 'Please select a GIF image file';
+                    input.value = '';
+                    return false;
+                }
+
+                // check file size (128KB = 128 * 1024 bytes)
+                const maxSize = 128 * 1024; // 128KB
+                if (file.size > maxSize) {
+                    avatarFileError.textContent = 'The image file size cannot exceed 128KB';
+                    input.value = '';
+                    return false;
+                }
+
+                // preview image
+                const reader = new FileReader();
+                reader.onload = function (e) {
+                    avatarPreview.style.backgroundImage = `url(${e.target.result})`;
+                    avatarPreview.classList.remove('hidden');
+                    selectedAvatarFile = file;
+                    writeAvatarButton.disabled = false;
+                };
+                reader.readAsDataURL(file);
+            }
+            return true;
         }
 
         // clear background image
         function clearBackgroundImage() {
-            document.body.style.backgroundImage = '';
+            // No longer changes page background
         }
 
         // connect
@@ -424,6 +488,8 @@
             serverUrlInput.disabled = false;
             backgroundImage.disabled = false;
             clearBgButton.disabled = false;
+            avatarImage.disabled = false;
+            clearAvatarButton.disabled = false;
             controlPanel.classList.remove('opacity-50', 'pointer-events-none');
 
             // Enable AFE controls
@@ -442,6 +508,9 @@
             backgroundImage.disabled = true;
             writeBgButton.disabled = true;
             clearBgButton.disabled = true;
+            avatarImage.disabled = true;
+            writeAvatarButton.disabled = true;
+            clearAvatarButton.disabled = true;
             controlPanel.classList.add('opacity-50', 'pointer-events-none');
 
             // Disable AFE controls
@@ -660,13 +729,6 @@
                     await new Promise(resolve => setTimeout(resolve, 50));
                 }
 
-                // background image
-                const reader = new FileReader();
-                reader.onload = function (e) {
-                    applyBackgroundImage(e.target.result);
-                };
-                reader.readAsDataURL(selectedBackgroundFile);
-
                 // reset the button
                 writeBgButton.disabled = false;
                 writeBgButton.textContent = 'Set Background';
@@ -681,6 +743,64 @@
                 writeBgButton.textContent = 'Set Background';
 
                 showNotification('Error', 'Background image error: ' + error.message, true);
+            }
+        }
+
+        async function writeAvatarImage() {
+            if (!isConnected || !service) {
+                showNotification('Error', 'EchoKit is not connected', true);
+                return;
+            }
+
+            if (!selectedAvatarFile) {
+                showNotification('Error', 'Please select an avatar image', true);
+                return;
+            }
+
+            try {
+                const characteristic = await service.getCharacteristic(AVATAR_IMAGE_ID);
+
+                const arrayBuffer = await selectedAvatarFile.arrayBuffer();
+                const totalSize = arrayBuffer.byteLength;
+                const chunkSize = 512; // BLE limit
+                const totalChunks = Math.ceil(totalSize / chunkSize);
+
+                showNotification('Message', `Sending avatar ${totalChunks} data chunks ...`);
+
+                // prevent double clicking
+                writeAvatarButton.disabled = true;
+                writeAvatarButton.textContent = 'Sending data ...';
+
+                for (let i = 0; i < totalChunks; i++) {
+                    const start = i * chunkSize;
+                    const end = Math.min(start + chunkSize, totalSize);
+                    const chunk = arrayBuffer.slice(start, end);
+
+                    const packet = new Uint8Array(chunk.byteLength);
+                    packet.set(new Uint8Array(chunk), 0);
+
+                    await characteristic.writeValue(packet);
+
+                    const progress = Math.round(((i + 1) / totalChunks) * 100);
+                    writeAvatarButton.textContent = `In progress ... ${progress}%`;
+
+                    await new Promise(resolve => setTimeout(resolve, 50));
+                }
+
+                // reset the button
+                writeAvatarButton.disabled = false;
+                writeAvatarButton.textContent = 'Set Avatar';
+
+                showNotification('Success', `Avatar uploaded successfully! Sent ${totalChunks} packets, total size ${Math.round(totalSize / 1024)}KB`);
+
+            } catch (error) {
+                console.error('Avatar error: ', error);
+
+                // reset the button
+                writeAvatarButton.disabled = false;
+                writeAvatarButton.textContent = 'Set Avatar';
+
+                showNotification('Error', 'Avatar error: ' + error.message, true);
             }
         }
 
@@ -720,6 +840,19 @@
         clearBgButton.addEventListener('click', () => {
             clearBackgroundImage();
             showNotification('Message', 'Background image cleared');
+        });
+
+        writeAvatarButton.addEventListener('click', () => {
+            writeAvatarImage();
+        });
+
+        clearAvatarButton.addEventListener('click', () => {
+            avatarPreview.style.backgroundImage = '';
+            avatarPreview.classList.add('hidden');
+            avatarImage.value = '';
+            selectedAvatarFile = null;
+            writeAvatarButton.disabled = true;
+            showNotification('Message', 'Avatar cleared');
         });
 
         // Read AFE Linear Gain (string format f32)

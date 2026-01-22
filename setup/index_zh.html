@@ -42,114 +42,141 @@
                                 <div class="label">
                                     <span class="label-text">网络名 (SSID)</span>
                                 </div>
-                                <input type="text" id="ssidInput" placeholder="输入SSID" class="input input-bordered w-full">
+                                <input type="text" id="ssidInput" placeholder="输入SSID"
+                                    class="input input-bordered w-full">
                             </label>
                             <label class="form-control">
                                 <div class="label">
                                     <span class="label-text">密码</span>
                                 </div>
-                                <input type="password" id="passInput" placeholder="输入密码" class="input input-bordered w-full">
-                            </label>
-                        </div>
-                        </div>
-                    </div>
-
-                    <div class="card bg-base-100 border border-base-300">
-                        <div class="card-body">
-                            <h3 class="card-title text-lg" id="urlTitle">服务器URL设置</h3>
-                            <label class="form-control">
-                                <div class="label">
-                                    <span class="label-text">URL</span>
-                                </div>
-                                <input type="text" id="serverUrlInput" placeholder="输入服务器URL" class="input input-bordered w-full">
+                                <input type="password" id="passInput" placeholder="输入密码"
+                                    class="input input-bordered w-full">
                             </label>
                         </div>
                     </div>
+                </div>
 
-                    <div class="card bg-base-100 border border-base-300">
-                        <div class="card-body">
-                            <h3 class="card-title text-lg">背景图片设置</h3>
-                            <div class="form-control mb-4">
-                                <label class="label">
-                                    <span class="label-text">选择背景图片 (GIF)</span>
-                                </label>
-                                <input type="file" class="file-input file-input-bordered w-full" id="backgroundImage"
-                                    accept=".gif" onchange="validateAndPreviewFile(this)">
-                                <label class="label">
-                                    <span class="label-text-alt">只允许GIF文件，最大1MB</span>
-                                </label>
-                                <div id="fileError" class="text-error text-sm"></div>
-                                <div id="bgPreview"
-                                    class="hidden mt-2 w-24 h-16 rounded border border-base-300 bg-cover bg-center">
-                                </div>
+                <div class="card bg-base-100 border border-base-300">
+                    <div class="card-body">
+                        <h3 class="card-title text-lg" id="urlTitle">服务器URL设置</h3>
+                        <label class="form-control">
+                            <div class="label">
+                                <span class="label-text">URL</span>
                             </div>
-                            <div class="flex gap-2">
-                                <button class="btn btn-primary flex-1" id="writeBgButton" disabled>设置背景</button>
-                                <button class="btn btn-outline flex-1" id="clearBgButton">清除背景</button>
+                            <input type="text" id="serverUrlInput" placeholder="输入服务器URL"
+                                class="input input-bordered w-full">
+                        </label>
+                    </div>
+                </div>
+
+                <div class="card bg-base-100 border border-base-300">
+                    <div class="card-body">
+                        <h3 class="card-title text-lg">背景图片设置</h3>
+                        <div class="form-control mb-4">
+                            <label class="label">
+                                <span class="label-text">选择背景图片 (GIF)</span>
+                            </label>
+                            <input type="file" class="file-input file-input-bordered w-full" id="backgroundImage"
+                                accept=".gif" onchange="validateAndPreviewFile(this)">
+                            <label class="label">
+                                <span class="label-text-alt">只允许GIF文件，最大1MB</span>
+                            </label>
+                            <div id="fileError" class="text-error text-sm"></div>
+                            <div id="bgPreview"
+                                class="hidden mt-2 w-24 h-16 rounded border border-base-300 bg-cover bg-center">
                             </div>
+                        </div>
+                        <div class="flex gap-2">
+                            <button class="btn btn-primary flex-1" id="writeBgButton" disabled>设置背景</button>
+                            <button class="btn btn-outline flex-1" id="clearBgButton">清除背景</button>
                         </div>
                     </div>
+                </div>
 
-                    <!-- 高级设置折叠面板 -->
-                    <div class="collapse collapse-arrow bg-base-200 border border-base-300">
-                        <input type="checkbox" id="advancedSettingsToggle" />
-                        <div class="collapse-title text-lg font-medium">
-                            🛠️ 高级设置
+                <div class="card bg-base-100 border border-base-300">
+                    <div class="card-body">
+                        <h3 class="card-title text-lg">头像设置</h3>
+                        <div class="form-control mb-4">
+                            <label class="label">
+                                <span class="label-text">选择头像 (GIF)</span>
+                            </label>
+                            <input type="file" class="file-input file-input-bordered w-full" id="avatarImage"
+                                accept=".gif" onchange="validateAndPreviewAvatarFile(this)">
+                            <label class="label">
+                                <span class="label-text-alt">只允许GIF文件，最大128KB</span>
+                            </label>
+                            <div id="avatarFileError" class="text-error text-sm"></div>
+                            <div id="avatarPreview"
+                                class="hidden mt-2 w-16 h-16 rounded border border-base-300 bg-cover bg-center">
+                            </div>
                         </div>
-                        <div class="collapse-content">
-                            <div class="space-y-4 pt-4">
-                                <!-- AFE Linear Gain -->
-                                <div class="card bg-base-100 border border-base-300">
-                                    <div class="card-body py-4">
-                                        <h4 class="card-title text-base" id="afeLinearGainTitle">AFE 线性增益</h4>
-                                        <label class="form-control">
-                                            <div class="label">
-                                                <span class="label-text">线性增益值 (0.1 - 3.0)</span>
-                                                <span class="badge badge-primary" id="afeLinearGainValue">1.5</span>
-                                            </div>
-                                            <input type="range" min="1" max="30" value="15"
-                                                class="range range-sm" id="afeLinearGainRange" />
-                                        </label>
-                                        <button class="btn btn-sm btn-outline mt-2" id="saveAfeLinearGainButton" disabled>
-                                            保存 AFE 线性增益
-                                        </button>
-                                    </div>
-                                </div>
+                        <div class="flex gap-2">
+                            <button class="btn btn-primary flex-1" id="writeAvatarButton" disabled>设置头像</button>
+                            <button class="btn btn-outline flex-1" id="clearAvatarButton">清除头像</button>
+                        </div>
+                    </div>
+                </div>
 
-                                <!-- AGC Target Level -->
-                                <div class="card bg-base-100 border border-base-300">
-                                    <div class="card-body py-4">
-                                        <h4 class="card-title text-base" id="agcTargetLevelTitle">AGC 目标电平</h4>
-                                        <label class="form-control">
-                                            <div class="label">
-                                                <span class="label-text">目标电平 (dBFS, 0 - 32)</span>
-                                                <span class="badge badge-primary" id="agcTargetLevelValue">1</span>
-                                            </div>
-                                            <input type="range" min="0" max="32" value="1"
-                                                class="range range-sm" id="agcTargetLevelRange" />
-                                        </label>
-                                        <button class="btn btn-sm btn-outline mt-2" id="saveAgcTargetLevelButton" disabled>
-                                            保存 AGC 目标电平
-                                        </button>
-                                    </div>
+                <!-- 高级设置折叠面板 -->
+                <div class="collapse collapse-arrow bg-base-200 border border-base-300">
+                    <input type="checkbox" id="advancedSettingsToggle" />
+                    <div class="collapse-title text-lg font-medium">
+                        🛠️ 高级设置
+                    </div>
+                    <div class="collapse-content">
+                        <div class="space-y-4 pt-4">
+                            <!-- AFE Linear Gain -->
+                            <div class="card bg-base-100 border border-base-300">
+                                <div class="card-body py-4">
+                                    <h4 class="card-title text-base" id="afeLinearGainTitle">AFE 线性增益</h4>
+                                    <label class="form-control">
+                                        <div class="label">
+                                            <span class="label-text">线性增益值 (0.1 - 3.0)</span>
+                                            <span class="badge badge-primary" id="afeLinearGainValue">1.5</span>
+                                        </div>
+                                        <input type="range" min="1" max="30" value="15" class="range range-sm"
+                                            id="afeLinearGainRange" />
+                                    </label>
+                                    <button class="btn btn-sm btn-outline mt-2" id="saveAfeLinearGainButton" disabled>
+                                        保存 AFE 线性增益
+                                    </button>
                                 </div>
+                            </div>
 
-                                <!-- AGC Compression Gain -->
-                                <div class="card bg-base-100 border border-base-300">
-                                    <div class="card-body py-4">
-                                        <h4 class="card-title text-base" id="agcCompressionGainTitle">AGC 压缩增益</h4>
-                                        <label class="form-control">
-                                            <div class="label">
-                                                <span class="label-text">压缩增益 (dB, 0 - 32)</span>
-                                                <span class="badge badge-primary" id="agcCompressionGainValue">15</span>
-                                            </div>
-                                            <input type="range" min="0" max="32" value="15"
-                                                class="range range-sm" id="agcCompressionGainRange" />
-                                        </label>
-                                        <button class="btn btn-sm btn-outline mt-2" id="saveAgcCompressionGainButton" disabled>
-                                            保存 AGC 压缩增益
-                                        </button>
-                                    </div>
+                            <!-- AGC Target Level -->
+                            <div class="card bg-base-100 border border-base-300">
+                                <div class="card-body py-4">
+                                    <h4 class="card-title text-base" id="agcTargetLevelTitle">AGC 目标电平</h4>
+                                    <label class="form-control">
+                                        <div class="label">
+                                            <span class="label-text">目标电平 (dBFS, 0 - 32)</span>
+                                            <span class="badge badge-primary" id="agcTargetLevelValue">1</span>
+                                        </div>
+                                        <input type="range" min="0" max="32" value="1" class="range range-sm"
+                                            id="agcTargetLevelRange" />
+                                    </label>
+                                    <button class="btn btn-sm btn-outline mt-2" id="saveAgcTargetLevelButton" disabled>
+                                        保存 AGC 目标电平
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- AGC Compression Gain -->
+                            <div class="card bg-base-100 border border-base-300">
+                                <div class="card-body py-4">
+                                    <h4 class="card-title text-base" id="agcCompressionGainTitle">AGC 压缩增益</h4>
+                                    <label class="form-control">
+                                        <div class="label">
+                                            <span class="label-text">压缩增益 (dB, 0 - 32)</span>
+                                            <span class="badge badge-primary" id="agcCompressionGainValue">15</span>
+                                        </div>
+                                        <input type="range" min="0" max="32" value="15" class="range range-sm"
+                                            id="agcCompressionGainRange" />
+                                    </label>
+                                    <button class="btn btn-sm btn-outline mt-2" id="saveAgcCompressionGainButton"
+                                        disabled>
+                                        保存 AGC 压缩增益
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -157,6 +184,7 @@
                 </div>
             </div>
         </div>
+    </div>
     </div>
 
     <!-- 提示消息容器 -->
@@ -186,6 +214,7 @@
         const PASS_ID = "a987ab18-a940-421a-a1d7-b94ee22bccbe";
         const SERVER_URL_ID = "cef520a9-bcb5-4fc6-87f7-82804eee2b20";
         const BACKGROUND_IMAGE_ID = "d1f3b2c4-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
+        const AVATAR_IMAGE_ID = "e2f4c3b5-6d7e-4f8a-9b0c-1f2e3d4c5b6a";
         const RESET_ID = "f0e1d2c3-b4a5-6789-0abc-def123456789";
         const AFE_LINEAR_GAIN_ID = "a1b2c3d4-e5f6-4789-0abc-def123456789";
         const AGC_TARGET_LEVEL_ID = "b2c3d4e5-f6a7-4890-1bcd-ef2345678901";
@@ -198,6 +227,7 @@
         let isConnected = false;
         let toast = null;
         let selectedBackgroundFile = null;
+        let selectedAvatarFile = null;
 
         // DOM元素
         const connectButton = document.getElementById('connectButton');
@@ -217,6 +247,11 @@
         const fileError = document.getElementById('fileError');
         const writeBgButton = document.getElementById('writeBgButton');
         const clearBgButton = document.getElementById('clearBgButton');
+        const avatarImage = document.getElementById('avatarImage');
+        const avatarPreview = document.getElementById('avatarPreview');
+        const avatarFileError = document.getElementById('avatarFileError');
+        const writeAvatarButton = document.getElementById('writeAvatarButton');
+        const clearAvatarButton = document.getElementById('clearAvatarButton');
         const notificationToast = document.getElementById('notificationToast');
         const toastMessage = document.getElementById('toastMessage');
         const resetNotSupportedModal = document.getElementById('resetNotSupportedModal');
@@ -324,14 +359,46 @@
             return true;
         }
 
-        // 应用背景图片
-        function applyBackgroundImage(imageDataUrl) {
-            document.body.style.backgroundImage = `url(${imageDataUrl})`;
+        // 验证并预览头像文件
+        function validateAndPreviewAvatarFile(input) {
+            const file = input.files[0];
+            avatarFileError.textContent = '';
+            avatarPreview.classList.add('hidden');
+            writeAvatarButton.disabled = true;
+            selectedAvatarFile = null;
+
+            if (file) {
+                // 检查文件类型
+                if (!file.type.startsWith('image/gif')) {
+                    avatarFileError.textContent = '请选择GIF格式的图片文件';
+                    input.value = '';
+                    return false;
+                }
+
+                // 检查文件大小 (128KB = 128 * 1024 bytes)
+                const maxSize = 128 * 1024; // 128KB
+                if (file.size > maxSize) {
+                    avatarFileError.textContent = '文件大小不能超过128KB';
+                    input.value = '';
+                    return false;
+                }
+
+                // 预览图片
+                const reader = new FileReader();
+                reader.onload = function (e) {
+                    avatarPreview.style.backgroundImage = `url(${e.target.result})`;
+                    avatarPreview.classList.remove('hidden');
+                    selectedAvatarFile = file;
+                    writeAvatarButton.disabled = false;
+                };
+                reader.readAsDataURL(file);
+            }
+            return true;
         }
 
         // 清除背景图片
         function clearBackgroundImage() {
-            document.body.style.backgroundImage = '';
+            // 不再改变页面背景
         }
 
         // 连接设备
@@ -417,6 +484,8 @@
             serverUrlInput.disabled = false;
             backgroundImage.disabled = false;
             clearBgButton.disabled = false;
+            avatarImage.disabled = false;
+            clearAvatarButton.disabled = false;
             controlPanel.classList.remove('opacity-50', 'pointer-events-none');
 
             // 启用 AFE 控件
@@ -435,6 +504,9 @@
             backgroundImage.disabled = true;
             writeBgButton.disabled = true;
             clearBgButton.disabled = true;
+            avatarImage.disabled = true;
+            writeAvatarButton.disabled = true;
+            clearAvatarButton.disabled = true;
             controlPanel.classList.add('opacity-50', 'pointer-events-none');
 
             // 禁用 AFE 控件
@@ -733,13 +805,6 @@
                     await new Promise(resolve => setTimeout(resolve, 50));
                 }
 
-                // 应用背景图片
-                const reader = new FileReader();
-                reader.onload = function (e) {
-                    applyBackgroundImage(e.target.result);
-                };
-                reader.readAsDataURL(selectedBackgroundFile);
-
                 // 恢复按钮状态
                 writeBgButton.disabled = false;
                 writeBgButton.textContent = '设置背景';
@@ -754,6 +819,71 @@
                 writeBgButton.textContent = '设置背景';
 
                 showNotification('错误', '写入背景图片失败: ' + error.message, true);
+            }
+        }
+
+        // 写入头像图片数据（分块传输）
+        async function writeAvatarImage() {
+            if (!isConnected || !service) {
+                showNotification('错误', '设备未连接', true);
+                return;
+            }
+
+            if (!selectedAvatarFile) {
+                showNotification('错误', '请先选择头像图片', true);
+                return;
+            }
+
+            try {
+                const characteristic = await service.getCharacteristic(AVATAR_IMAGE_ID);
+
+                // 读取文件为ArrayBuffer
+                const arrayBuffer = await selectedAvatarFile.arrayBuffer();
+                const totalSize = arrayBuffer.byteLength;
+                const chunkSize = 512; // BLE写入限制为512字节
+                const totalChunks = Math.ceil(totalSize / chunkSize);
+
+                showNotification('信息', `开始传输头像，共${totalChunks}个数据包...`);
+
+                // 禁用按钮防止重复点击
+                writeAvatarButton.disabled = true;
+                writeAvatarButton.textContent = '传输中...';
+
+                // 分块传输
+                for (let i = 0; i < totalChunks; i++) {
+                    const start = i * chunkSize;
+                    const end = Math.min(start + chunkSize, totalSize);
+                    const chunk = arrayBuffer.slice(start, end);
+
+                    // 合并包头和数据
+                    const packet = new Uint8Array(chunk.byteLength);
+                    packet.set(new Uint8Array(chunk), 0);
+
+                    // 写入数据包
+                    await characteristic.writeValue(packet);
+
+                    // 更新进度
+                    const progress = Math.round(((i + 1) / totalChunks) * 100);
+                    writeAvatarButton.textContent = `传输中... ${progress}%`;
+
+                    // 小延时确保设备有足够时间处理
+                    await new Promise(resolve => setTimeout(resolve, 50));
+                }
+
+                // 恢复按钮状态
+                writeAvatarButton.disabled = false;
+                writeAvatarButton.textContent = '设置头像';
+
+                showNotification('成功', `头像设置成功！传输了${totalChunks}个数据包，总大小${Math.round(totalSize / 1024)}KB`);
+
+            } catch (error) {
+                console.error('写入头像失败:', error);
+
+                // 恢复按钮状态
+                writeAvatarButton.disabled = false;
+                writeAvatarButton.textContent = '设置头像';
+
+                showNotification('错误', '写入头像失败: ' + error.message, true);
             }
         }
 
@@ -794,6 +924,19 @@
         clearBgButton.addEventListener('click', () => {
             clearBackgroundImage();
             showNotification('信息', '背景图片已清除');
+        });
+
+        writeAvatarButton.addEventListener('click', () => {
+            writeAvatarImage();
+        });
+
+        clearAvatarButton.addEventListener('click', () => {
+            avatarPreview.style.backgroundImage = '';
+            avatarPreview.classList.add('hidden');
+            avatarImage.value = '';
+            selectedAvatarFile = null;
+            writeAvatarButton.disabled = true;
+            showNotification('信息', '头像已清除');
         });
 
         // AFE Linear Gain 保存函数

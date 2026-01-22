@@ -412,9 +412,9 @@ impl<const N: usize> DynamicImage<N> {
         &self,
         display: &mut D,
     ) -> Result<(), D::Error> {
-        if !self.image_data.is_empty() {
-            display.draw_iter(self.image_data[self.display_index].iter().cloned())?;
-        }
+        self.image_data
+            .get(self.display_index)
+            .map(|pixels| display.draw_iter(pixels.iter().cloned()));
         Ok(())
     }
 }
