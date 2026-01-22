@@ -103,9 +103,7 @@ impl Setting {
                 .unwrap_or(128 * 1024);
 
             let mut gif_buf = vec![0; avatar_gif_size];
-            let gif_buf_ = nvs
-                .get_blob("avatar_gif", &mut gif_buf)?
-                .unwrap_or(ui::AVATAR_GIF);
+            let gif_buf_ = nvs.get_blob("avatar_gif", &mut gif_buf)?.unwrap_or(&[]);
 
             if gif_buf_.len() != avatar_gif_size {
                 log::warn!(

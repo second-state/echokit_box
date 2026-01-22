@@ -12,9 +12,6 @@ pub type ColorFormat = Rgb565;
 pub const DEFAULT_BACKGROUND: &[u8] = include_bytes!("../assets/echokit.gif");
 // pub const DEFAULT_BACKGROUND: &[u8] = include_bytes!("../assets/ht.gif");
 
-// pub const LM_PNG: &[u8] = include_bytes!("../assets/lm_320x240.png");
-pub const AVATAR_GIF: &[u8] = include_bytes!("../assets/avatar.gif");
-
 // TextRenderer + CharacterStyle
 #[derive(Debug, Clone)]
 pub struct MyTextStyle(pub U8g2TextStyle<ColorFormat>, pub i32);
