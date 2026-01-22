@@ -424,10 +424,13 @@ pub mod ui {
             }
         }
 
-        pub fn set_avatar_index(&mut self, index: usize) {
+        pub fn set_avatar_index(&mut self, index: usize) -> bool {
             if !self.avatar.image_data.is_empty() {
                 self.avatar.set_index(index);
                 self.avatar_updated = true;
+                true
+            } else {
+                false
             }
         }
 
