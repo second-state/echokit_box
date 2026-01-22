@@ -319,26 +319,38 @@ fn main() -> anyhow::Result<()> {
             }
 
             if setting.0.avatar_gif.1 {
-                config_ui.set_info("Testing avatar GIF...".to_string());
-                config_ui.draw(framebuffer.as_mut())?;
-                framebuffer.flush()?;
+                if setting.0.avatar_gif.0.is_empty() {
+                    config_ui.set_info("Clearing avatar GIF to default.".to_string());
+                    config_ui.draw(framebuffer.as_mut())?;
+                    framebuffer.flush()?;
 
-                let mut new_gif = Vec::new();
-                std::mem::swap(&mut setting.0.avatar_gif.0, &mut new_gif);
+                    setting
+                        .1
+                        .remove("avatar_gif")
+                        .map_err(|e| log::error!("Failed to clear avatar GIF from NVS: {:?}", e))
+                        .unwrap();
+                } else {
+                    config_ui.set_info("Testing avatar GIF...".to_string());
+                    config_ui.draw(framebuffer.as_mut())?;
+                    framebuffer.flush()?;
 
-                crate::ui::display_gif(framebuffer.as_mut(), &new_gif).unwrap();
-                log::info!("Avatar GIF set from NVS");
+                    let mut new_gif = Vec::new();
+                    std::mem::swap(&mut setting.0.avatar_gif.0, &mut new_gif);
 
-                config_ui.set_info("Avatar GIF set OK".to_string());
-                config_ui.draw(framebuffer.as_mut())?;
-                framebuffer.flush()?;
+                    crate::ui::display_gif(framebuffer.as_mut(), &new_gif).unwrap();
+                    log::info!("Avatar GIF set from NVS");
 
-                setting
-                    .1
-                    .set_blob("avatar_gif", &new_gif)
-                    .map_err(|e| log::error!("Failed to save avatar GIF to NVS: {:?}", e))
-                    .unwrap();
-                log::info!("Avatar GIF saved to NVS");
+                    config_ui.set_info("Avatar GIF set OK".to_string());
+                    config_ui.draw(framebuffer.as_mut())?;
+                    framebuffer.flush()?;
+
+                    setting
+                        .1
+                        .set_blob("avatar_gif", &new_gif)
+                        .map_err(|e| log::error!("Failed to save avatar GIF to NVS: {:?}", e))
+                        .unwrap();
+                    log::info!("Avatar GIF saved to NVS");
+                }
             }
         }
 

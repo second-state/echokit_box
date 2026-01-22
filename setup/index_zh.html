@@ -930,13 +930,30 @@
             writeAvatarImage();
         });
 
-        clearAvatarButton.addEventListener('click', () => {
-            avatarPreview.style.backgroundImage = '';
-            avatarPreview.classList.add('hidden');
-            avatarImage.value = '';
-            selectedAvatarFile = null;
-            writeAvatarButton.disabled = true;
-            showNotification('信息', '头像已清除');
+        clearAvatarButton.addEventListener('click', async () => {
+            if (!isConnected || !service) {
+                showNotification('错误', '设备未连接', true);
+                return;
+            }
+
+            try {
+                // 发送空数据清除头像
+                const characteristic = await service.getCharacteristic(AVATAR_IMAGE_ID);
+                const emptyData = new Uint8Array(0);
+                await characteristic.writeValue(emptyData);
+
+                // 清除UI状态
+                avatarPreview.style.backgroundImage = '';
+                avatarPreview.classList.add('hidden');
+                avatarImage.value = '';
+                selectedAvatarFile = null;
+                writeAvatarButton.disabled = true;
+
+                showNotification('成功', '头像已清除');
+            } catch (error) {
+                console.error('清除头像失败:', error);
+                showNotification('错误', '清除头像失败: ' + error.message, true);
+            }
         });
 
         // AFE Linear Gain 保存函数

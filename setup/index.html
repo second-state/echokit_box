@@ -846,13 +846,30 @@
             writeAvatarImage();
         });
 
-        clearAvatarButton.addEventListener('click', () => {
-            avatarPreview.style.backgroundImage = '';
-            avatarPreview.classList.add('hidden');
-            avatarImage.value = '';
-            selectedAvatarFile = null;
-            writeAvatarButton.disabled = true;
-            showNotification('Message', 'Avatar cleared');
+        clearAvatarButton.addEventListener('click', async () => {
+            if (!isConnected || !service) {
+                showNotification('Error', 'Device not connected', true);
+                return;
+            }
+
+            try {
+                // Send empty data to clear avatar
+                const characteristic = await service.getCharacteristic(AVATAR_IMAGE_ID);
+                const emptyData = new Uint8Array(0);
+                await characteristic.writeValue(emptyData);
+
+                // Clear UI state
+                avatarPreview.style.backgroundImage = '';
+                avatarPreview.classList.add('hidden');
+                avatarImage.value = '';
+                selectedAvatarFile = null;
+                writeAvatarButton.disabled = true;
+
+                showNotification('Success', 'Avatar cleared');
+            } catch (error) {
+                console.error('Failed to clear avatar:', error);
+                showNotification('Error', 'Failed to clear avatar: ' + error.message, true);
+            }
         });
 
         // Read AFE Linear Gain (string format f32)

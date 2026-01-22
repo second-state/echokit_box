@@ -169,6 +169,13 @@ pub fn bt(
         .create_characteristic(AVATAR_GIF_ID, NimbleProperties::WRITE);
     avatar_gif_characteristic.lock().on_write(move |args| {
         let gif_chunk = args.recv_data();
+        if gif_chunk.len() == 0 {
+            log::info!("Clearing avatar GIF to default.");
+            let mut setting = setting_avatar.lock().unwrap();
+            setting.0.avatar_gif.0.clear();
+            setting.0.avatar_gif.1 = true; // Mark as valid
+            return;
+        }
 
         if gif_chunk.len() <= 1024 * 1024 && gif_chunk.len() > 0 {
             log::info!("New avatar GIF received, size: {}", gif_chunk.len());
