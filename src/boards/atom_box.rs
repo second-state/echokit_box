@@ -537,7 +537,7 @@ pub mod ui {
             .fill_color(ColorFormat::CSS_DARK_CYAN)
             .build();
 
-        let pixels = crate::ui::get_background_pixels(target, asr_area_box, asr_style, 0.15);
+        let pixels = crate::ui::get_background_pixels(target, asr_area_box, asr_style, 0.5);
         target.draw_iter(pixels)?;
 
         let content_style = PrimitiveStyleBuilder::new()
@@ -545,8 +545,7 @@ pub mod ui {
             .stroke_width(5)
             .fill_color(ColorFormat::CSS_BLACK)
             .build();
-        let pixels =
-            crate::ui::get_background_pixels(target, content_area_box, content_style, 0.25);
+        let pixels = crate::ui::get_background_pixels(target, content_area_box, content_style, 0.5);
         target.draw_iter(pixels)?;
 
         target.background_buffers.clone_from(&target.buffers);
