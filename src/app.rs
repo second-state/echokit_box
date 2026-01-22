@@ -63,6 +63,23 @@ async fn select_evt(
             // log::info!("Event select timeout");
              Some(Event::Event(Event::IDLE))
         }
+        Ok(msg) = s_fut => {
+            match msg {
+                Event::ServerEvent(ServerEvent::AudioChunk { .. })=>{
+                    log::debug!("[Select] Received AudioChunk");
+                }
+                Event::ServerEvent(ServerEvent::AudioChunki16 { .. })=>{
+                    log::debug!("[Select] Received AudioChunki16");
+                }
+                Event::ServerEvent(ServerEvent::HelloChunk { .. })=>{
+                    log::debug!("[Select] Received HelloChunk");
+                }
+                _=> {
+                    log::debug!("[Select] Received message: {:?}", msg);
+                }
+            }
+            Some(msg)
+        }
         Some(evt) = evt_rx.recv() => {
             match &evt {
                 Event::Event(_) => {
@@ -85,23 +102,6 @@ async fn select_evt(
                 }
             }
             Some(evt)
-        }
-        Ok(msg) = s_fut => {
-            match msg {
-                Event::ServerEvent(ServerEvent::AudioChunk { .. })=>{
-                    log::debug!("[Select] Received AudioChunk");
-                }
-                Event::ServerEvent(ServerEvent::AudioChunki16 { .. })=>{
-                    log::debug!("[Select] Received AudioChunki16");
-                }
-                Event::ServerEvent(ServerEvent::HelloChunk { .. })=>{
-                    log::debug!("[Select] Received HelloChunk");
-                }
-                _=> {
-                    log::debug!("[Select] Received message: {:?}", msg);
-                }
-            }
-            Some(msg)
         }
         else => {
             log::info!("No events");
