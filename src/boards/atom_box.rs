@@ -290,6 +290,20 @@ pub mod ui {
             s
         }
 
+        fn fill_color(&mut self, color: ColorFormat) -> anyhow::Result<()> {
+            for (i, buffer) in self.buffers.iter_mut().enumerate() {
+                buffer.clear(color)?;
+                self.diff_indexs.push(i);
+                self.draw_mask[i] = 1;
+            }
+
+            for buffer in self.background_buffers.iter_mut() {
+                buffer.clear(color)?;
+            }
+
+            Ok(())
+        }
+
         fn flush(&mut self) -> anyhow::Result<()> {
             unsafe {
                 let panel_handle = std::mem::transmute(esp_idf_svc::sys::hal_driver::panel_handle);

@@ -317,6 +317,13 @@ pub mod ui {
 
             s
         }
+
+        fn fill_color(&mut self, color: ColorFormat) -> anyhow::Result<()> {
+            self.buffers.clear(color)?;
+            self.background_buffers.clear(color)?;
+            Ok(())
+        }
+
         fn flush(&mut self) -> anyhow::Result<()> {
             let bounding_box = self.bounding_box();
             let x_start = bounding_box.top_left.x as i32;

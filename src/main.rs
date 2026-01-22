@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use embedded_graphics::{
-    prelude::{Dimensions, RgbColor},
+    prelude::{Dimensions, RgbColor, WebColors},
     Drawable,
 };
 use esp_idf_svc::eventloop::EspSystemEventLoop;
@@ -230,6 +230,7 @@ fn main() -> anyhow::Result<()> {
 
         let version = env!("CARGO_PKG_VERSION");
 
+        framebuffer.fill_color(ui::ColorFormat::CSS_GRAY)?;
         let mut config_ui = boards::ui::ConfiguresUI::new(framebuffer.bounding_box(), "https://echokit.dev/setup/", format!("Goto https://echokit.dev/setup/ to set up the device.\nDevice Name: EchoKit-{}\nVersion: {}", dev_id, version)).unwrap();
 
         config_ui.draw(framebuffer.as_mut())?;

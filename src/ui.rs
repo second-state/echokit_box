@@ -95,6 +95,7 @@ pub trait DisplayTargetDrive:
     DrawTarget<Color = ColorFormat> + GetPixel<Color = ColorFormat>
 {
     fn new(color: ColorFormat) -> Self;
+    fn fill_color(&mut self, color: ColorFormat) -> anyhow::Result<()>;
     fn flush(&mut self) -> anyhow::Result<()>;
     fn fix_background(&mut self) -> anyhow::Result<()>;
 }
