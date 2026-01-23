@@ -1,6 +1,6 @@
 [package]
 name = "echokit"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["csh <458761603@qq.com>"]
 edition = "2021"
 resolver = "2"
