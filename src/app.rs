@@ -177,6 +177,7 @@ pub async fn main_work<'d, const N: usize>(
     enum State {
         Listening,
         Waiting,
+        Choices,
         Speaking,
         Idle,
     }
@@ -187,6 +188,8 @@ pub async fn main_work<'d, const N: usize>(
     framebuffer.flush()?;
 
     let mut state = State::Idle;
+    let mut choices_index = 0;
+    let mut choices_items: Vec<String> = Vec::new();
 
     let mut submit_state = SubmitState {
         submit_audio: 0.0,
@@ -223,6 +226,12 @@ pub async fn main_work<'d, const N: usize>(
                     gui.render_to_target(framebuffer)?;
                     framebuffer.flush()?;
                     server.close().await?;
+                } else if state == State::Choices {
+                    server.send_client_select(choices_index).await?;
+                    state = State::Waiting;
+                    gui.set_state("Waiting...".to_string());
+                    gui.render_to_target(framebuffer)?;
+                    framebuffer.flush()?;
                 } else {
                     gui.set_state("Connecting...".to_string());
                     gui.render_to_target(framebuffer)?;
@@ -259,7 +268,7 @@ pub async fn main_work<'d, const N: usize>(
                     framebuffer.flush()?;
                 }
             }
-            Event::Event(Event::VOL_UP) => {
+            Event::Event(Event::VOL_UP) if state != State::Choices => {
                 vol += 1;
                 if vol > 5 {
                     vol = 5;
@@ -272,7 +281,28 @@ pub async fn main_work<'d, const N: usize>(
                 gui.render_to_target(framebuffer)?;
                 framebuffer.flush()?;
             }
-            Event::Event(Event::VOL_DOWN) => {
+            Event::Event(Event::VOL_UP) => {
+                choices_index += 1;
+                choices_index %= choices_items.len();
+
+                let choices_string = choices_items
+                    .iter()
+                    .enumerate()
+                    .map(|(i, item)| {
+                        if i == choices_index {
+                            format!("> {}", item)
+                        } else {
+                            format!("  {}", item)
+                        }
+                    })
+                    .collect::<Vec<String>>()
+                    .join("\n");
+
+                gui.set_text(choices_string);
+                gui.render_to_target(framebuffer)?;
+                framebuffer.flush()?;
+            }
+            Event::Event(Event::VOL_DOWN) if state != State::Choices => {
                 vol -= 1;
                 if vol < 1 {
                     vol = 1;
@@ -285,7 +315,29 @@ pub async fn main_work<'d, const N: usize>(
                 gui.render_to_target(framebuffer)?;
                 framebuffer.flush()?;
             }
-            Event::Event(Event::VOL_SWITCH) => {
+            Event::Event(Event::VOL_DOWN) => {
+                if choices_index != 0 {
+                    choices_index -= 1;
+                }
+
+                let choices_string = choices_items
+                    .iter()
+                    .enumerate()
+                    .map(|(i, item)| {
+                        if i == choices_index {
+                            format!("> {}", item)
+                        } else {
+                            format!("  {}", item)
+                        }
+                    })
+                    .collect::<Vec<String>>()
+                    .join("\n");
+
+                gui.set_text(choices_string);
+                gui.render_to_target(framebuffer)?;
+                framebuffer.flush()?;
+            }
+            Event::Event(Event::VOL_SWITCH) if state != State::Choices => {
                 vol -= 1;
                 if vol < 1 {
                     vol = 5;
@@ -404,6 +456,29 @@ pub async fn main_work<'d, const N: usize>(
                 gui.render_to_target(framebuffer)?;
                 framebuffer.flush()?;
             }
+            Event::ServerEvent(ServerEvent::Choices { message, items }) => {
+                log::info!("Received choices");
+                state = State::Choices;
+                choices_index = 0;
+                choices_items = items;
+                let choices_string = choices_items
+                    .iter()
+                    .enumerate()
+                    .map(|(i, item)| {
+                        if i == choices_index {
+                            format!("> {}", item)
+                        } else {
+                            format!("  {}", item)
+                        }
+                    })
+                    .collect::<Vec<String>>()
+                    .join("\n");
+
+                gui.set_asr(message);
+                gui.set_text(choices_string);
+                gui.render_to_target(framebuffer)?;
+                framebuffer.flush()?;
+            }
             Event::ServerEvent(ServerEvent::StartAudio { text }) => {
                 start_audio = true;
                 state = State::Speaking;
@@ -488,7 +563,9 @@ pub async fn main_work<'d, const N: usize>(
 
                 submit_state.clear();
 
-                state = State::Listening;
+                if state != State::Idle {
+                    state = State::Listening;
+                }
                 gui.set_state("Ready".to_string());
                 gui.render_to_target(framebuffer)?;
                 framebuffer.flush()?;
@@ -543,6 +620,12 @@ pub async fn main_work<'d, const N: usize>(
                 wait_notify = false;
                 state = State::Waiting;
                 gui.set_state("Waiting...".to_string());
+                gui.render_to_target(framebuffer)?;
+                framebuffer.flush()?;
+            }
+            Event::ServerEvent(ServerEvent::HasNotification) => {
+                log::info!("Received HasNotification event from server");
+                gui.set_state("Notification".to_string());
                 gui.render_to_target(framebuffer)?;
                 framebuffer.flush()?;
             }

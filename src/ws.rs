@@ -5,6 +5,8 @@ fn print_stack_high() {
     log::info!("Stack high: {}", stack_high);
 }
 
+use std::str::FromStr;
+
 use crate::{app::Event, protocol::ServerEvent};
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
 use tokio_websockets::Message;
@@ -163,7 +165,58 @@ async fn ws_manager(
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct NotifyResponse {
+    has_notification: bool,
+}
+
+async fn poll_notifications(
+    poll_url: String,
+    tx: tokio::sync::mpsc::Sender<ServerEvent>,
+) -> anyhow::Result<()> {
+    let client = reqwest::Client::new();
+
+    loop {
+        match client.get(&poll_url).send().await {
+            Ok(resp) => {
+                let status = resp.status().as_u16();
+                if status >= 400 && status < 500 {
+                    log::info!("server unsupported polling notifications: HTTP {}", status);
+                    break Ok(());
+                } else if status >= 500 {
+                    log::warn!("Server error while polling notifications: HTTP {}", status);
+                } else {
+                    match resp.json::<NotifyResponse>().await {
+                        Ok(notify_resp) => {
+                            if notify_resp.has_notification {
+                                log::info!("New notification available from server");
+                                tx.send(ServerEvent::HasNotification).await.map_err(|e| {
+                                    anyhow::anyhow!(
+                                        "Failed to send notification event to channel: {}",
+                                        e
+                                    )
+                                })?;
+                            } else {
+                                log::debug!("No new notifications");
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("Failed to parse notification response: {}", e);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to poll notifications: {}", e);
+            }
+        }
+
+        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+    }
+}
+
 async fn connect_handler(
+    poll_url: String,
     ws: tokio_websockets::WebSocketStream<tokio_websockets::MaybeTlsStream<tokio::net::TcpStream>>,
 ) -> (
     tokio::sync::mpsc::Sender<SubmitItem>,
@@ -172,6 +225,13 @@ async fn connect_handler(
     let (tx_ws, rx) = tokio::sync::mpsc::channel::<SubmitItem>(32);
     let (tx, rx_ws) = tokio::sync::mpsc::channel::<ServerEvent>(32);
 
+    let tx_ = tx.clone();
+
+    tokio::spawn(async move {
+        if let Err(e) = poll_notifications(poll_url, tx_).await {
+            log::error!("Notification polling error: {}", e);
+        }
+    });
     tokio::spawn(async move {
         if let Err(e) = ws_manager(ws, rx, tx).await {
             log::error!("WebSocket manager error: {}", e);
@@ -210,7 +270,18 @@ impl Server {
 
         let timeout = std::time::Duration::from_secs(30);
 
-        let (tx, rx) = connect_handler(ws).await;
+        let mut poll_url = reqwest::Url::from_str(&url).unwrap();
+        let new_scheme = match poll_url.scheme() {
+            "ws" => "http".to_string(),
+            "wss" => "https".to_string(),
+            other => other.to_string(),
+        };
+        poll_url.set_scheme(&new_scheme).unwrap();
+        let _ = poll_url.path_segments_mut().map(|mut p| {
+            p.pop().push("proxy").push("state").push(&id);
+        });
+
+        let (tx, rx) = connect_handler(poll_url.to_string(), ws).await;
 
         Ok(Self {
             id,
@@ -249,7 +320,18 @@ impl Server {
             .await
             .map_err(|e| anyhow::anyhow!("Failed to reconnect: {}", e))?;
 
-        let (tx, rx) = connect_handler(ws).await;
+        let mut poll_url = reqwest::Url::from_str(&self.url).unwrap();
+        let new_scheme = match poll_url.scheme() {
+            "ws" => "http".to_string(),
+            "wss" => "https".to_string(),
+            other => other.to_string(),
+        };
+        poll_url.set_scheme(&new_scheme).unwrap();
+        let _ = poll_url.path_segments_mut().map(|mut p| {
+            p.pop().push("proxy").push("state").push(&self.id);
+        });
+
+        let (tx, rx) = connect_handler(poll_url.to_string(), ws).await;
         self.tx = tx;
         self.rx = rx;
         Ok(())
@@ -294,6 +376,11 @@ impl Server {
         //     .map_err(|e| anyhow::anyhow!("Failed to serialize command: {}", e))?;
         // let msg = Message::text(payload);
         self.send(SubmitItem::JSON(cmd)).await
+    }
+
+    pub async fn send_client_select(&mut self, index: usize) -> anyhow::Result<()> {
+        self.send_client_command(crate::protocol::ClientCommand::Select { index })
+            .await
     }
 
     pub async fn send_client_audio_chunk(&mut self, chunk: Vec<u8>) -> anyhow::Result<()> {
