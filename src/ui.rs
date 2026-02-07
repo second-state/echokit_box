@@ -70,7 +70,7 @@ impl CharacterStyle for MyTextStyle {
     }
 
     fn set_background_color(&mut self, background_color: Option<Self::Color>) {
-        self.0.set_background_color(background_color);
+        // self.0.set_background_color(background_color);
     }
 
     fn set_underline_color(

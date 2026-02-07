@@ -283,20 +283,20 @@ pub fn player_welcome(
 }
 
 pub enum AudioEvent {
-    Hello(Arc<tokio::sync::Notify>),
+    Hello,
     SetHello(Vec<u8>),
     StartSpeech,
     ClearSpeech,
     SpeechChunki16(Vec<i16>),
     SpeechChunki16WithVowel(Vec<i16>, u8),
-    EndSpeech(Arc<tokio::sync::Notify>),
+    EndSpeech,
     VolSet(u8),
 }
 
 pub enum SendBufferItem {
     Vowel(u8),
     Audio(Vec<i16>),
-    EndSpeech(Arc<tokio::sync::Notify>),
+    EndSpeech,
 }
 
 pub struct SendBuffer {
@@ -408,36 +408,25 @@ impl SendBuffer {
         self.cache.push_back(SendBufferItem::Vowel(vowel));
     }
 
-    pub fn push_back_end_speech(&mut self, notify: Arc<tokio::sync::Notify>) {
-        self.cache.push_back(SendBufferItem::EndSpeech(notify));
+    pub fn push_back_end_speech(&mut self) {
+        self.cache.push_back(SendBufferItem::EndSpeech);
     }
 
     pub fn get_chunk(&mut self) -> Option<SendBufferItem> {
-        loop {
-            match self.cache.pop_front() {
-                Some(SendBufferItem::Vowel(v)) => return Some(SendBufferItem::Vowel(v)),
-                Some(SendBufferItem::Audio(v)) => return Some(SendBufferItem::Audio(v)),
-                Some(SendBufferItem::EndSpeech(notify)) => {
-                    let _ = notify.notify_one();
-                    continue;
-                }
-                None => return None,
-            }
-        }
+        self.cache.pop_front()
     }
 
-    pub fn clear(&mut self) {
+    pub fn clear(&mut self, tx: &EventTx) {
         loop {
             match self.cache.pop_front() {
-                Some(SendBufferItem::EndSpeech(tx)) => {
-                    let _ = tx.notify_one();
-                }
                 Some(_) => {}
                 None => {
                     break;
                 }
             }
         }
+
+        let _ = tx.blocking_send(crate::app::Event::PlaybackEnded);
     }
 }
 
@@ -525,18 +514,18 @@ fn audio_task_run(
     loop {
         if let Ok(event) = rx.try_recv() {
             match event {
-                AudioEvent::Hello(notify) => {
+                AudioEvent::Hello => {
                     log::info!("Received Hello event");
-                    send_buffer.clear();
+                    send_buffer.clear(&tx);
                     send_buffer.push_u8(&hello_wav);
-                    send_buffer.push_back_end_speech(notify);
+                    send_buffer.push_back_end_speech();
                 }
                 AudioEvent::SetHello(hello) => {
                     hello_wav = hello;
                 }
                 AudioEvent::StartSpeech => {}
                 AudioEvent::ClearSpeech => {
-                    send_buffer.clear();
+                    send_buffer.clear(&tx);
                 }
                 AudioEvent::SpeechChunki16WithVowel(items, vowel) => {
                     send_buffer.push_vowel(vowel);
@@ -545,9 +534,9 @@ fn audio_task_run(
                 AudioEvent::SpeechChunki16(items) => {
                     send_buffer.push_i16(&items);
                 }
-                AudioEvent::EndSpeech(sender) => {
+                AudioEvent::EndSpeech => {
                     send_buffer.push_vowel(0);
-                    send_buffer.push_back_end_speech(sender);
+                    send_buffer.push_back_end_speech();
                 }
                 AudioEvent::VolSet(vol) => {
                     send_buffer.volume = vol as i16;
@@ -563,8 +552,10 @@ fn audio_task_run(
                             .map_err(|_| anyhow::anyhow!("Failed to send vowel event"))?;
                         continue;
                     }
-                    Some(SendBufferItem::EndSpeech(_)) => {
-                        unreachable!("EndSpeech should be handled in get_chunk")
+                    Some(SendBufferItem::EndSpeech) => {
+                        tx.blocking_send(crate::app::Event::PlaybackEnded)
+                            .map_err(|_| anyhow::anyhow!("Failed to send end speech event"))?;
+                        continue;
                     }
                     None => None,
                 };
