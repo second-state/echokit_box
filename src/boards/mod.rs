@@ -348,14 +348,26 @@ pub mod ui {
     }
 
     const AVATAR_SIZE: u32 = 96;
+
+    enum ChatMainArea {
+        Content(String),
+        Choices {
+            select_index: usize,
+            question: String,
+            choices: Vec<String>,
+        },
+    }
+
     pub struct ChatUI<const N: usize> {
         state_text: String,
         state_text_pixels: Vec<Pixel<ColorFormat>>,
+        state_volume: u8,
+        state_allow_interrupt: bool,
 
         asr_text: String,
         asr_text_pixels: Vec<Pixel<ColorFormat>>,
 
-        content: String,
+        content: ChatMainArea,
         content_pixels: Vec<Pixel<ColorFormat>>,
 
         avatar: DynamicImage<N>,
@@ -366,11 +378,28 @@ pub mod ui {
             Self {
                 state_text: String::new(),
                 state_text_pixels: Vec::with_capacity(DISPLAY_WIDTH * 32),
+                state_volume: 5,
+                state_allow_interrupt: true,
+
                 asr_text: String::new(),
                 asr_text_pixels: Vec::with_capacity(DISPLAY_WIDTH * 32),
-                content: String::new(),
+                content: ChatMainArea::Content(String::new()),
                 content_pixels: Vec::with_capacity(DISPLAY_WIDTH * DISPLAY_HEIGHT / 4),
                 avatar: avatar,
+            }
+        }
+
+        pub fn set_volume(&mut self, volume: u8) {
+            if self.state_volume != volume {
+                self.state_volume = volume;
+                self.state_text_pixels.clear();
+            }
+        }
+
+        pub fn set_allow_interrupt(&mut self, allow: bool) {
+            if self.state_allow_interrupt != allow {
+                self.state_allow_interrupt = allow;
+                self.state_text_pixels.clear();
             }
         }
 
@@ -389,9 +418,47 @@ pub mod ui {
         }
 
         pub fn set_text(&mut self, text: String) {
-            if self.content != text {
-                self.content = text;
+            if let ChatMainArea::Content(current_text) = &self.content {
+                if current_text != &text {
+                    self.content = ChatMainArea::Content(text);
+                    self.content_pixels.clear();
+                }
+            } else {
+                self.content = ChatMainArea::Content(text);
                 self.content_pixels.clear();
+            }
+        }
+
+        pub fn set_choices(&mut self, question: String, choices: Vec<String>) {
+            self.content = ChatMainArea::Choices {
+                select_index: 0,
+                question,
+                choices,
+            };
+            self.content_pixels.clear();
+        }
+
+        pub fn update_choice_index(&mut self, index: usize) -> usize {
+            if let ChatMainArea::Choices {
+                select_index,
+                question: _,
+                choices,
+            } = &mut self.content
+            {
+                let index = if index >= choices.len() {
+                    choices.len() - 1
+                } else {
+                    index
+                };
+
+                if *select_index != index {
+                    *select_index = index;
+                    self.content_pixels.clear();
+                }
+
+                index
+            } else {
+                0
             }
         }
 
@@ -416,6 +483,28 @@ pub mod ui {
                     pixels: &mut self.state_text_pixels,
                     bounding_box,
                 };
+
+                let h = state_area_box.size.height;
+
+                let vol_box = Rectangle::new(
+                    state_area_box.top_left + Point::new((state_area_box.size.width - h) as i32, 0),
+                    Size::new(h, h),
+                );
+
+                let color = if self.state_allow_interrupt {
+                    ColorFormat::CSS_LIGHT_CYAN
+                } else {
+                    ColorFormat::CSS_DARK_GRAY
+                };
+
+                Text::with_alignment(
+                    &self.state_volume.to_string(),
+                    vol_box.center(),
+                    U8g2TextStyle::new(u8g2_fonts::fonts::u8g2_font_wqy12_t_gb2312a, color),
+                    Alignment::Center,
+                )
+                .draw(&mut pixel_target)?;
+
                 Text::with_alignment(
                     &self.state_text,
                     state_area_box.center(),
@@ -452,26 +541,64 @@ pub mod ui {
                     pixels: &mut self.content_pixels,
                     bounding_box,
                 };
+
                 let textbox_style = embedded_text::style::TextBoxStyleBuilder::new()
                     .height_mode(embedded_text::style::HeightMode::FitToText)
                     .alignment(embedded_text::alignment::HorizontalAlignment::Center)
-                    .line_height(embedded_graphics::text::LineHeight::Percent(120))
-                    .paragraph_spacing(16)
+                    .line_height(embedded_graphics::text::LineHeight::Pixels(14))
+                    // .paragraph_spacing(16)
                     .build();
 
-                embedded_text::TextBox::with_textbox_style(
-                    &self.content,
-                    content_area_box,
-                    crate::ui::MyTextStyle(
-                        U8g2TextStyle::new(
-                            u8g2_fonts::fonts::u8g2_font_wqy16_t_gb2312,
-                            ColorFormat::CSS_WHEAT,
-                        ),
-                        3,
-                    ),
-                    textbox_style,
-                )
-                .draw(&mut pixel_target)?;
+                match &self.content {
+                    ChatMainArea::Content(content) => {
+                        embedded_text::TextBox::with_textbox_style(
+                            content,
+                            content_area_box,
+                            crate::ui::MyTextStyle(
+                                U8g2TextStyle::new(
+                                    u8g2_fonts::fonts::u8g2_font_wqy12_t_gb2312,
+                                    ColorFormat::CSS_WHEAT,
+                                ),
+                                3,
+                            ),
+                            textbox_style,
+                        )
+                        .draw(&mut pixel_target)?;
+                    }
+                    ChatMainArea::Choices {
+                        select_index,
+                        question,
+                        choices,
+                    } => {
+                        let text = choices
+                            .iter()
+                            .enumerate()
+                            .map(|(i, choice)| {
+                                if i == *select_index {
+                                    format!("\x1b[38;2;78;201;176m [{}]", choice)
+                                } else {
+                                    format!("\x1b[97m  {}", choice)
+                                }
+                            })
+                            .collect::<Vec<String>>()
+                            .join("\n");
+
+                        embedded_text::TextBox::with_textbox_style(
+                            &format!("{}\n\n{}", question, text),
+                            content_area_box,
+                            crate::ui::MyTextStyle(
+                                U8g2TextStyle::new(
+                                    u8g2_fonts::fonts::u8g2_font_wqy12_t_gb2312,
+                                    ColorFormat::CSS_WHEAT,
+                                ),
+                                3,
+                            ),
+                            textbox_style,
+                        )
+                        .add_plugin(embedded_text::plugin::ansi::Ansi::new())
+                        .draw(&mut pixel_target)?;
+                    }
+                }
             }
             target.draw_iter(self.content_pixels.iter().cloned())?;
 

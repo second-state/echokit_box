@@ -158,7 +158,7 @@ enum State {
     Listening,
     Submitting,
     Waiting,
-    Choices { index: usize },
+    Choices { index: usize, item_count: usize },
     Speaking { block_server: bool },
     Idle,
 }
@@ -259,8 +259,12 @@ impl<'gui, const N: usize> App<'gui, N> {
 
     fn handle_key_up(&mut self, player_tx: &audio::PlayerTx) -> anyhow::Result<()> {
         match &mut self.state {
-            State::Choices { index } => {
-                *index = self.gui.update_choice_index(*index + 1);
+            State::Choices { index, item_count } => {
+                if *index + 1 >= *item_count {
+                    *index = self.gui.update_choice_index(0);
+                } else {
+                    *index = self.gui.update_choice_index(*index + 1);
+                }
                 self.flush_gui()?;
             }
             State::Listening | State::Speaking { .. } => {
@@ -284,11 +288,13 @@ impl<'gui, const N: usize> App<'gui, N> {
 
     fn handle_key_down(&mut self, player_tx: &audio::PlayerTx) -> anyhow::Result<()> {
         match &mut self.state {
-            State::Choices { index } => {
+            State::Choices { index, item_count } => {
                 if *index > 0 {
                     *index = self.gui.update_choice_index(*index - 1);
-                    self.flush_gui()?;
+                } else {
+                    *index = self.gui.update_choice_index(*item_count - 1);
                 }
+                self.flush_gui()?;
             }
             State::Listening | State::Speaking { .. } => {
                 // decrease volume
@@ -314,9 +320,10 @@ impl<'gui, const N: usize> App<'gui, N> {
     ) -> anyhow::Result<()> {
         match &self.state {
             State::Listening | State::Waiting | State::Submitting => {
+                let _ = server.close().await;
                 self.goto_idle()?;
             }
-            State::Choices { index } => {
+            State::Choices { index, .. } => {
                 // select choice
                 log::info!("Selected choice index {}", index);
                 server.send_client_select(*index).await?;
@@ -350,9 +357,6 @@ impl<'gui, const N: usize> App<'gui, N> {
                     .map_err(|_| anyhow::anyhow!("Error sending clear"))?;
 
                 self.goto_listening()?;
-            }
-            _ => {
-                self.goto_idle()?;
             }
         }
 
@@ -482,13 +486,19 @@ impl<'gui, const N: usize> App<'gui, N> {
 
             ServerEvent::Choices { message, items } => {
                 log::info!("Received choices");
-                self.state = State::Choices { index: 0 };
+                self.state = State::Choices {
+                    index: 0,
+                    item_count: items.len(),
+                };
                 self.gui.set_choices(message, items);
                 self.flush_gui()?;
             }
 
             ServerEvent::StartAudio { text } => {
-                if !matches!(self.state, State::Waiting | State::Speaking { .. }) {
+                if !matches!(
+                    self.state,
+                    State::Listening | State::Waiting | State::Speaking { .. }
+                ) {
                     log::warn!("Received StartAudio while {:?}, ignoring", self.state);
                     return Ok(());
                 }
@@ -683,6 +693,7 @@ pub async fn main_work<'d, const N: usize>(
             }
             Event::Event(Event::YES | Event::K1) => {}
             Event::Event(Event::IDLE) => {
+                let _ = server.close().await;
                 app.goto_idle()?;
             }
 
