@@ -13,7 +13,7 @@ pub static mut AGC_TARGET_LEVEL_DBFS: i32 = 3;
 pub static mut AGC_COMPRESSION_GAIN_DB: i32 = 15;
 
 unsafe fn afe_init() -> (
-    *mut esp_sr::esp_afe_sr_iface_t,
+    *const esp_sr::esp_afe_sr_iface_t,
     *mut esp_sr::esp_afe_sr_data_t,
 ) {
     // let models = esp_sr::esp_srmodel_init(c"model".as_ptr());
@@ -53,7 +53,7 @@ unsafe fn afe_init() -> (
     log::info!("afe ringbuf size: {}", afe_ringbuf_size);
 
     let afe_handle = esp_sr::esp_afe_handle_from_config(afe_config);
-    let afe_handle = afe_handle.as_mut().unwrap();
+    let afe_handle = afe_handle.as_ref().unwrap();
     let afe_data = (afe_handle.create_from_config.unwrap())(afe_config);
     let audio_chunksize = (afe_handle.get_feed_chunksize.unwrap())(afe_data);
     log::info!("audio chunksize: {}", audio_chunksize);
@@ -63,7 +63,7 @@ unsafe fn afe_init() -> (
 }
 
 struct AFE {
-    handle: *mut esp_sr::esp_afe_sr_iface_t,
+    handle: *const esp_sr::esp_afe_sr_iface_t,
     data: *mut esp_sr::esp_afe_sr_data_t,
     #[allow(unused)]
     feed_chunksize: usize,
@@ -82,7 +82,7 @@ impl AFE {
         unsafe {
             let (handle, data) = afe_init();
             let feed_chunksize =
-                (handle.as_mut().unwrap().get_feed_chunksize.unwrap())(data) as usize;
+                (handle.as_ref().unwrap().get_feed_chunksize.unwrap())(data) as usize;
 
             AFE {
                 handle,
