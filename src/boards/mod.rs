@@ -384,7 +384,9 @@ pub mod ui {
         pub fn set_asr(&mut self, text: String) {
             if self.asr_text != text {
                 self.asr_text = text;
+                self.content.clear();
                 self.asr_text_pixels.clear();
+                self.content_pixels.clear(); // Clear to trigger re-render with combined text
             }
         }
 
@@ -409,7 +411,7 @@ pub mod ui {
 
             self.avatar.render(target)?;
 
-            let (state_area_box, asr_area_box, content_area_box) = Self::layout(bounding_box);
+            let (state_area_box, content_area_box) = Self::layout(bounding_box);
 
             if self.state_text_pixels.is_empty() {
                 let mut pixel_target = PixelsTarget {
@@ -429,25 +431,16 @@ pub mod ui {
             }
             target.draw_iter(self.state_text_pixels.iter().cloned())?;
 
-            if self.asr_text_pixels.is_empty() {
-                let mut pixel_target = PixelsTarget {
-                    pixels: &mut self.asr_text_pixels,
-                    bounding_box,
-                };
-                Text::with_alignment(
-                    &self.asr_text,
-                    asr_area_box.center(),
-                    U8g2TextStyle::new(
-                        u8g2_fonts::fonts::u8g2_font_wqy12_t_gb2312a,
-                        ColorFormat::CSS_WHEAT,
-                    ),
-                    Alignment::Center,
-                )
-                .draw(&mut pixel_target)?;
-            }
-            target.draw_iter(self.asr_text_pixels.iter().cloned())?;
+            // Combine ASR and Content for rendering
+            // ASR only shows when there's no Content
+            let combined_text = if self.content.is_empty() {
+                self.asr_text.clone()
+            } else {
+                self.content.clone()
+            };
 
-            if self.content_pixels.is_empty() {
+            if self.content_pixels.is_empty() || self.asr_text_pixels.is_empty() {
+                self.content_pixels.clear();
                 let mut pixel_target = PixelsTarget {
                     pixels: &mut self.content_pixels,
                     bounding_box,
@@ -460,7 +453,7 @@ pub mod ui {
                     .build();
 
                 embedded_text::TextBox::with_textbox_style(
-                    &self.content,
+                    &combined_text,
                     content_area_box,
                     crate::ui::MyTextStyle(
                         U8g2TextStyle::new(
@@ -478,25 +471,20 @@ pub mod ui {
             Ok(())
         }
 
-        pub fn layout(bounding_box: Rectangle) -> (Rectangle, Rectangle, Rectangle) {
+        pub fn layout(bounding_box: Rectangle) -> (Rectangle, Rectangle) {
             let state_area_box = Rectangle::new(
                 bounding_box.top_left,
                 Size::new(bounding_box.size.width, 32),
             );
 
-            let asr_area_box = Rectangle::new(
-                bounding_box.top_left + Point::new(0, 32),
-                Size::new(bounding_box.size.width, 32),
-            );
-
-            let content_height = bounding_box.size.height - 64;
+            let content_height = bounding_box.size.height - 32;
 
             let content_area_box = Rectangle::new(
-                bounding_box.top_left + Point::new(0, 64),
+                bounding_box.top_left + Point::new(0, 32),
                 Size::new(bounding_box.size.width, content_height),
             );
 
-            (state_area_box, asr_area_box, content_area_box)
+            (state_area_box, content_area_box)
         }
     }
 
@@ -515,7 +503,7 @@ pub mod ui {
             Size::new(AVATAR_SIZE, AVATAR_SIZE),
         );
 
-        let (state_area_box, asr_area_box, content_area_box) = ChatUI::<N>::layout(bounding_box);
+        let (state_area_box, content_area_box) = ChatUI::<N>::layout(bounding_box);
         let state_style = PrimitiveStyleBuilder::new()
             .stroke_color(ColorFormat::CSS_DARK_BLUE)
             .stroke_width(1)
@@ -523,15 +511,6 @@ pub mod ui {
             .build();
 
         let pixels = crate::ui::get_background_pixels(target, state_area_box, state_style, 0.5);
-        target.draw_iter(pixels)?;
-
-        let asr_style = PrimitiveStyleBuilder::new()
-            .stroke_color(ColorFormat::CSS_DARK_CYAN)
-            .stroke_width(1)
-            .fill_color(ColorFormat::CSS_DARK_CYAN)
-            .build();
-
-        let pixels = crate::ui::get_background_pixels(target, asr_area_box, asr_style, 0.5);
         target.draw_iter(pixels)?;
 
         let content_style = PrimitiveStyleBuilder::new()
